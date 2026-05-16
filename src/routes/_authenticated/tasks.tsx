@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, MessageSquare, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,8 +18,9 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  STATUS_LABEL, STATUS_ORDER, STATUS_BG,
+  STATUS_ORDER, STATUS_BG,
   PRIORITY_LABEL, PriorityPill,
+  useStatusLabel, usePriorityLabel,
 } from "@/components/task-pills";
 import type { TaskStatus, TaskPriority } from "@/components/task-pills";
 
@@ -28,6 +30,8 @@ export const Route = createFileRoute("/_authenticated/tasks")({
 
 function TasksPage() {
   const { user, isAdmin } = useAuth();
+  const { t } = useI18n();
+  const statusLabel = useStatusLabel();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -77,7 +81,7 @@ function TasksPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       setDetailId(null);
-      toast.success("Task deleted");
+      toast.success(t("task_deleted"));
     },
   });
 
@@ -88,13 +92,13 @@ function TasksPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-          <p className="text-sm text-muted-foreground mt-1">Track every task across teams.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("tasks")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("tasks_sub")}</p>
         </div>
         {isAdmin && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button><Plus className="size-4" />New task</Button>
+              <Button><Plus className="size-4" />{t("new_task")}</Button>
             </DialogTrigger>
             <NewTaskDialog
               members={members ?? []}
@@ -113,28 +117,28 @@ function TasksPage() {
             <div key={s} className="flex flex-col">
               <div className="flex items-center gap-2 mb-3">
                 <span className={`size-2.5 rounded-full ${STATUS_BG[s]}`} />
-                <h3 className="text-sm font-medium">{STATUS_LABEL[s]}</h3>
+                <h3 className="text-sm font-medium">{statusLabel(s)}</h3>
                 <span className="text-xs text-muted-foreground">{items.length}</span>
               </div>
               <div className="space-y-2 min-h-[100px]">
-                {items.map((t) => (
+                {items.map((tk) => (
                   <Card
-                    key={t.id}
-                    onClick={() => setDetailId(t.id)}
+                    key={tk.id}
+                    onClick={() => setDetailId(tk.id)}
                     className="p-3 cursor-pointer hover:shadow-sm transition-shadow"
                   >
-                    <div className="text-sm font-medium leading-snug">{t.title}</div>
+                    <div className="text-sm font-medium leading-snug">{tk.title}</div>
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <PriorityPill priority={t.priority} />
-                      {t.due_date && <span>· {t.due_date}</span>}
+                      <PriorityPill priority={tk.priority} />
+                      {tk.due_date && <span>· {tk.due_date}</span>}
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground truncate">
-                      {t.assignee?.full_name ?? "Unassigned"} · {t.department?.name ?? "—"}
+                      {tk.assignee?.full_name ?? t("unassigned")} · {tk.department?.name ?? "—"}
                     </div>
                   </Card>
                 ))}
                 {items.length === 0 && (
-                  <div className="text-xs text-muted-foreground/60 italic px-1">Empty</div>
+                  <div className="text-xs text-muted-foreground/60 italic px-1">{t("empty")}</div>
                 )}
               </div>
             </div>
@@ -163,6 +167,8 @@ function NewTaskDialog({
 }: {
   members: any[]; depts: any[]; userId: string; onCreated: () => void;
 }) {
+  const { t } = useI18n();
+  const priorityLabel = usePriorityLabel();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
@@ -185,36 +191,36 @@ function NewTaskDialog({
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Task created");
+    toast.success(t("task_created"));
     onCreated();
   };
 
   return (
     <DialogContent className="sm:max-w-lg">
-      <DialogHeader><DialogTitle>New task</DialogTitle></DialogHeader>
+      <DialogHeader><DialogTitle>{t("new_task")}</DialogTitle></DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
-          <Label>Title</Label>
+          <Label>{t("title")}</Label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
         </div>
         <div className="space-y-1.5">
-          <Label>Description</Label>
+          <Label>{t("description")}</Label>
           <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} maxLength={2000} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Priority</Label>
+            <Label>{t("priority")}</Label>
             <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
-                  <SelectItem key={p} value={p}>{PRIORITY_LABEL[p]}</SelectItem>
+                  <SelectItem key={p} value={p}>{priorityLabel(p)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Department</Label>
+            <Label>{t("department")}</Label>
             <Select value={dept} onValueChange={setDept}>
               <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>
@@ -224,9 +230,9 @@ function NewTaskDialog({
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label>Assignee</Label>
+          <Label>{t("assignee")}</Label>
           <Select value={assignee} onValueChange={setAssignee}>
-            <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("unassigned")} /></SelectTrigger>
             <SelectContent>
               {members.map((m) => <SelectItem key={m.id} value={m.id}>{m.full_name ?? m.email}</SelectItem>)}
             </SelectContent>
@@ -234,16 +240,16 @@ function NewTaskDialog({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Start date</Label>
+            <Label>{t("start_date")}</Label>
             <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label>Due date</Label>
+            <Label>{t("due_date")}</Label>
             <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
           </div>
         </div>
         <Button type="submit" disabled={busy} className="w-full">
-          {busy ? "Creating…" : "Create task"}
+          {busy ? t("creating") : t("create_task")}
         </Button>
       </form>
     </DialogContent>
@@ -256,6 +262,8 @@ function TaskDetail({
   task: any; canEdit: boolean; isAdmin: boolean; userId: string;
   onStatusChange: (s: TaskStatus) => void; onDelete: () => void;
 }) {
+  const { t } = useI18n();
+  const statusLabel = useStatusLabel();
   const qc = useQueryClient();
   const [comment, setComment] = useState("");
 
@@ -293,41 +301,41 @@ function TaskDetail({
         )}
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Status</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("status")}</div>
             {canEdit ? (
               <Select value={task.status} onValueChange={(v) => onStatusChange(v as TaskStatus)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_ORDER.map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>)}
+                  {STATUS_ORDER.map((s) => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}
                 </SelectContent>
               </Select>
-            ) : <div>{STATUS_LABEL[task.status as TaskStatus]}</div>}
+            ) : <div>{statusLabel(task.status as TaskStatus)}</div>}
           </div>
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Priority</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("priority")}</div>
             <PriorityPill priority={task.priority} />
           </div>
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Assignee</div>
-            <div>{task.assignee?.full_name ?? "Unassigned"}</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("assignee")}</div>
+            <div>{task.assignee?.full_name ?? t("unassigned")}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Department</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("department")}</div>
             <div>{task.department?.name ?? "—"}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Start</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("start")}</div>
             <div>{task.start_date ?? "—"}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Due</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("due")}</div>
             <div>{task.due_date ?? "—"}</div>
           </div>
         </div>
 
         <div className="border-t pt-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-medium">
-            <MessageSquare className="size-4" /> Updates
+            <MessageSquare className="size-4" /> {t("updates")}
           </div>
           <div className="space-y-3 mb-3">
             {(comments ?? []).map((c) => (
@@ -342,14 +350,14 @@ function TaskDetail({
               </div>
             ))}
             {(comments ?? []).length === 0 && (
-              <div className="text-xs text-muted-foreground italic">No updates yet.</div>
+              <div className="text-xs text-muted-foreground italic">{t("no_updates")}</div>
             )}
           </div>
           <div className="flex gap-2">
             <Textarea value={comment} onChange={(e) => setComment(e.target.value)}
-              placeholder="Post an update…" rows={2} maxLength={1000} />
+              placeholder={t("post_update")} rows={2} maxLength={1000} />
             <Button onClick={() => post.mutate()} disabled={!comment.trim() || post.isPending}>
-              Post
+              {t("post")}
             </Button>
           </div>
         </div>
@@ -357,7 +365,7 @@ function TaskDetail({
         {isAdmin && (
           <div className="border-t pt-4 flex justify-end">
             <Button variant="destructive" size="sm" onClick={onDelete}>
-              <Trash2 className="size-4" /> Delete task
+              <Trash2 className="size-4" /> {t("delete_task")}
             </Button>
           </div>
         )}
