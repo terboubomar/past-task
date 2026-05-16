@@ -3,8 +3,19 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
+const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3)
+  .max(40)
+  .regex(/^[a-z0-9_.-]+$/, "Only letters, numbers, dot, underscore, hyphen");
+
+const USERNAME_EMAIL_DOMAIN = "past-task.local";
+const toEmail = (username: string) => `${username}@${USERNAME_EMAIL_DOMAIN}`;
+
 const newUserSchema = z.object({
-  email: z.string().email().max(255),
+  username: usernameSchema,
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
   department_id: z.string().uuid().nullable(),
