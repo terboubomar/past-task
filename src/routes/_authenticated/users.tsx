@@ -114,7 +114,7 @@ function UsersPage() {
 }
 
 function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: () => void; create: any }) {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<"ceo" | "admin" | "member">("member");
@@ -125,10 +125,10 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
     e.preventDefault();
     setBusy(true);
     try {
-      await create({ data: { email, password, full_name: name, role, department_id: dept || null } });
+      await create({ data: { username: username.trim().toLowerCase(), password, full_name: name, role, department_id: dept || null } });
       toast.success("User created");
       onCreated();
-      setEmail(""); setPassword(""); setName(""); setDept(""); setRole("member");
+      setUsername(""); setPassword(""); setName(""); setDept(""); setRole("member");
     } catch (err: any) {
       toast.error(err.message);
     } finally { setBusy(false); }
