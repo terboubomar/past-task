@@ -143,8 +143,8 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div className="space-y-1.5">
-          <Label>Email</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Label>Username</Label>
+          <Input autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} pattern="[a-zA-Z0-9_.\-]+" />
         </div>
         <div className="space-y-1.5">
           <Label>Temporary password</Label>
