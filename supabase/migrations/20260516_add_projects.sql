@@ -1,56 +1,30 @@
--- ============================================================
 -- Projects table
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.projects (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          text NOT NULL,
-  description   text,
-  color         text NOT NULL DEFAULT '#6366f1',
-  department_id uuid REFERENCES public.departments(id) ON DELETE SET NULL,
-  created_by    uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-  created_at    timestamptz NOT NULL DEFAULT now()
+create table if not exists public.projects (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  description text,
+  color       text not null default '#6366f1',
+  department_id uuid references public.departments(id) on delete set null,
+  created_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
 );
 
-ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+alter table public.projects enable row level security;
 
--- All authenticated users can read projects
-CREATE POLICY "projects_read" ON public.projects
-  FOR SELECT USING (auth.role() = 'authenticated');
+-- Everyone authenticated can read projects
+create policy "projects_read" on public.projects
+  for select using (auth.role() = 'authenticated');
 
--- Admins / CEOs / super_admins can insert
-CREATE POLICY "projects_insert" ON public.projects
-  FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.user_roles
-      WHERE user_id = auth.uid()
-        AND role IN ('admin', 'ceo', 'super_admin')
+-- Only admins/ceo/super_admin can insert/update/delete
+create policy "projects_write" on public.projects
+  for all using (
+    exists (
+      select 1 from public.user_roles
+      where user_id = auth.uid()
+        and role in ('admin','ceo','super_admin')
     )
   );
 
--- Admins / CEOs / super_admins can update
-CREATE POLICY "projects_update" ON public.projects
-  FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM public.user_roles
-      WHERE user_id = auth.uid()
-        AND role IN ('admin', 'ceo', 'super_admin')
-    )
-  );
-
--- Admins / CEOs / super_admins can delete
-CREATE POLICY "projects_delete" ON public.projects
-  FOR DELETE USING (
-    EXISTS (
-      SELECT 1 FROM public.user_roles
-      WHERE user_id = auth.uid()
-        AND role IN ('admin', 'ceo', 'super_admin')
-    )
-  );
-
--- ============================================================
 -- Add project_id to tasks
--- ============================================================
-ALTER TABLE public.tasks
-  ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON public.tasks(project_id);
+alter table public.tasks
+  add column if not exists project_id uuid references public.projects(id) on delete set null;

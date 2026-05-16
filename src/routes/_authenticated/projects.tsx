@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Pencil, Trash2, FolderKanban, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, FolderOpen, ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -17,59 +18,62 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/projects")({
   component: ProjectsPage,
 });
 
-const PROJECT_COLORS = [
-  "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e",
-  "#f97316", "#eab308", "#22c55e", "#06b6d4",
-  "#3b82f6", "#64748b",
+const COLORS = [
+  { label: "Indigo",  value: "#6366f1" },
+  { label: "Blue",    value: "#3b82f6" },
+  { label: "Teal",    value: "#14b8a6" },
+  { label: "Green",   value: "#22c55e" },
+  { label: "Orange",  value: "#f97316" },
+  { label: "Pink",    value: "#ec4899" },
+  { label: "Red",     value: "#ef4444" },
+  { label: "Purple",  value: "#a855f7" },
 ];
 
 function ProjectsPage() {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { t } = useI18n();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editProject, setEditProject] = useState<any>(null);
 
-  const { data: projects, isLoading } = useQuery({
+  const { data: projects } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*, department:departments(name)")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: taskCounts } = useQuery({
-    queryKey: ["project-task-counts"],
-    queryFn: async () => {
       const { data } = await supabase
-        .from("tasks")
-        .select("project_id, status")
-        .not("project_id", "is", null);
-      const counts: Record<string, { total: number; done: number }> = {};
-      (data ?? []).forEach((t) => {
-        if (!t.project_id) return;
-        if (!counts[t.project_id]) counts[t.project_id] = { total: 0, done: 0 };
-        counts[t.project_id].total++;
-        if (t.status === "done") counts[t.project_id].done++;
-      });
-      return counts;
+        .from("projects")
+        .select("*, department:departments(id,name)")
+        .order("created_at", { ascending: false });
+      return data ?? [];
     },
   });
 
   const { data: depts } = useQuery({
     queryKey: ["departments"],
     queryFn: async () => (await supabase.from("departments").select("*").order("name")).data ?? [],
+  });
+
+  // Task counts per project
+  const { data: taskCounts } = useQuery({
+    queryKey: ["task-counts-by-project"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tasks")
+        .select("project_id, status")
+        .not("project_id", "is", null);
+      const map: Record<string, { total: number; done: number }> = {};
+      (data ?? []).forEach((tk: any) => {
+        if (!map[tk.project_id]) map[tk.project_id] = { total: 0, done: 0 };
+        map[tk.project_id].total++;
+        if (tk.status === "done") map[tk.project_id].done++;
+      });
+      return map;
+    },
   });
 
   const deleteProject = useMutation({
@@ -85,7 +89,7 @@ function ProjectsPage() {
   });
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl">
+    <div className="p-4 md:p-8">
       <div className="flex items-start justify-between mb-6 gap-3">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight">{t("projects")}</h1>
@@ -98,99 +102,107 @@ function ProjectsPage() {
             </DialogTrigger>
             <ProjectFormDialog
               depts={depts ?? []}
+              userId={user?.id ?? ""}
               onSaved={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["projects"] }); }}
             />
           </Dialog>
         )}
       </div>
 
-      {isLoading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-36 rounded-xl bg-muted animate-pulse" />
-          ))}
-        </div>
-      )}
-
-      {!isLoading && (projects ?? []).length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <FolderKanban className="size-12 text-muted-foreground/30 mb-4" />
+      {/* Grid */}
+      {(projects ?? []).length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <FolderOpen className="size-12 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">{t("no_projects")}</p>
           {isAdmin && (
-            <Button className="mt-4" size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> {t("new_project")}
-            </Button>
+            <Button size="sm" onClick={() => setOpen(true)}><Plus className="size-4" />{t("new_project")}</Button>
           )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(projects ?? []).map((p: any) => {
+            const counts = taskCounts?.[p.id];
+            const pct = counts && counts.total > 0
+              ? Math.round((counts.done / counts.total) * 100)
+              : 0;
+            return (
+              <Card key={p.id} className="p-0 overflow-hidden hover:shadow-md transition-shadow">
+                {/* Color bar */}
+                <div className="h-1.5 w-full" style={{ backgroundColor: p.color }} />
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className="size-8 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
+                        style={{ backgroundColor: p.color }}
+                      >
+                        {p.name.charAt(0).toUpperCase()}
+                      </span>
+                      <div>
+                        <div className="font-semibold text-sm leading-tight">{p.name}</div>
+                        {p.department?.name && (
+                          <div className="text-xs text-muted-foreground mt-0.5">{p.department.name}</div>
+                        )}
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          onClick={() => setEditProject(p)}
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteProject.mutate(p.id)}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {p.description && (
+                    <p className="text-xs text-muted-foreground mt-3 line-clamp-2">{p.description}</p>
+                  )}
+
+                  {/* Progress */}
+                  <div className="mt-4">
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>{counts?.total ?? 0} tasks</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, backgroundColor: p.color }}
+                      />
+                    </div>
+                  </div>
+
+                  <Link
+                    to="/tasks"
+                    search={{ project: p.id } as any}
+                    className="mt-4 flex items-center gap-1 text-xs font-medium hover:underline"
+                    style={{ color: p.color }}
+                  >
+                    View tasks <ArrowRight className="size-3" />
+                  </Link>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(projects ?? []).map((p) => {
-          const counts = taskCounts?.[p.id];
-          const total = counts?.total ?? 0;
-          const done = counts?.done ?? 0;
-          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-          return (
-            <Card key={p.id} className="p-5 flex flex-col gap-3 hover:shadow-md transition-shadow group">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="size-3 rounded-full shrink-0" style={{ background: p.color }} />
-                  <span className="font-medium text-sm leading-snug">{p.name}</span>
-                </div>
-                {isAdmin && (
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => setEditProject(p)}
-                      className="p-1 rounded hover:bg-muted text-muted-foreground">
-                      <Pencil className="size-3.5" />
-                    </button>
-                    <button onClick={() => deleteProject.mutate(p.id)}
-                      className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {p.description && (
-                <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>
-              )}
-
-              <div className="mt-auto space-y-1.5">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{done}/{total} {t("done")}</span>
-                  <span>{pct}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${pct}%`, background: p.color }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-xs text-muted-foreground">
-                  {p.department?.name ?? "—"}
-                </span>
-                <Link
-                  to="/tasks"
-                  search={{ project: p.id } as any}
-                  className="flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  {t("nav_tasks")} <ChevronRight className="size-3" />
-                </Link>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Edit Dialog */}
+      {/* Edit dialog */}
       {editProject && (
         <Dialog open={!!editProject} onOpenChange={(o) => !o && setEditProject(null)}>
           <ProjectFormDialog
-            project={editProject}
             depts={depts ?? []}
+            userId={user?.id ?? ""}
+            project={editProject}
             onSaved={() => { setEditProject(null); qc.invalidateQueries({ queryKey: ["projects"] }); }}
           />
         </Dialog>
@@ -199,14 +211,15 @@ function ProjectsPage() {
   );
 }
 
-function ProjectFormDialog({ project, depts, onSaved }: {
-  project?: any; depts: any[]; onSaved: () => void;
+function ProjectFormDialog({
+  depts, userId, project, onSaved,
+}: {
+  depts: any[]; userId: string; project?: any; onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const { user } = useAuth();
   const [name, setName] = useState(project?.name ?? "");
   const [desc, setDesc] = useState(project?.description ?? "");
-  const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[0]);
+  const [color, setColor] = useState(project?.color ?? "#6366f1");
   const [dept, setDept] = useState(project?.department_id ?? "");
   const [busy, setBusy] = useState(false);
 
@@ -214,27 +227,25 @@ function ProjectFormDialog({ project, depts, onSaved }: {
     e.preventDefault();
     setBusy(true);
     let error;
-    if (project?.id) {
+    if (project) {
       ({ error } = await supabase.from("projects").update({
         name, description: desc || null, color, department_id: dept || null,
       }).eq("id", project.id));
     } else {
       ({ error } = await supabase.from("projects").insert({
-        name, description: desc || null, color,
-        department_id: dept || null,
-        created_by: user?.id,
+        name, description: desc || null, color, department_id: dept || null, created_by: userId,
       }));
     }
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success(project?.id ? t("project_updated") : t("project_created"));
+    toast.success(project ? t("project_updated") : t("project_created"));
     onSaved();
   };
 
   return (
     <DialogContent className="sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>{project?.id ? t("edit_project") : t("create_project")}</DialogTitle>
+        <DialogTitle>{project ? t("edit_project") : t("create_project")}</DialogTitle>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
@@ -248,15 +259,17 @@ function ProjectFormDialog({ project, depts, onSaved }: {
         <div className="space-y-1.5">
           <Label>{t("project_color")}</Label>
           <div className="flex gap-2 flex-wrap">
-            {PROJECT_COLORS.map((c) => (
+            {COLORS.map((c) => (
               <button
-                key={c} type="button"
-                onClick={() => setColor(c)}
+                key={c.value}
+                type="button"
+                onClick={() => setColor(c.value)}
                 className={cn(
-                  "size-7 rounded-full border-2 transition-transform hover:scale-110",
-                  color === c ? "border-foreground scale-110" : "border-transparent"
+                  "size-7 rounded-full border-2 transition-all",
+                  color === c.value ? "border-foreground scale-110" : "border-transparent"
                 )}
-                style={{ background: c }}
+                style={{ backgroundColor: c.value }}
+                title={c.label}
               />
             ))}
           </div>
@@ -264,14 +277,14 @@ function ProjectFormDialog({ project, depts, onSaved }: {
         <div className="space-y-1.5">
           <Label>{t("department")}</Label>
           <Select value={dept} onValueChange={setDept}>
-            <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
             <SelectContent>
-              {depts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              {depts.map((d: any) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-        <Button type="submit" disabled={busy} className="w-full">
-          {busy ? t("saving") : (project?.id ? t("save_changes") : t("create_project"))}
+        <Button type="submit" disabled={busy} className="w-full" style={{ backgroundColor: color }}>
+          {busy ? t("saving") : project ? t("save_changes") : t("create_project")}
         </Button>
       </form>
     </DialogContent>

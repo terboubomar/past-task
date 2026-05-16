@@ -1,9 +1,9 @@
-import { createFileRoute, useSearch, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import {
   Plus, MessageSquare, Trash2, Search, LayoutList,
-  LayoutGrid, Pencil, CalendarClock, X, ChevronDown, ChevronRight,
+  LayoutGrid, Pencil, CalendarClock, X, Table2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,50 +31,52 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   component: TasksPage,
-  validateSearch: (s: Record<string, unknown>) => ({
-    project: typeof s.project === "string" ? s.project : undefined,
-  }),
 });
 
 const STATUS_RING: Record<TaskStatus, string> = {
-  not_started: "border-l-4 border-l-gray-400",
-  working:     "border-l-4 border-l-blue-500",
-  stuck:       "border-l-4 border-l-red-500",
-  done:        "border-l-4 border-l-green-500",
+  not_started: "border-s-4 border-s-gray-400",
+  working:     "border-s-4 border-s-blue-500",
+  stuck:       "border-s-4 border-s-red-500",
+  done:        "border-s-4 border-s-green-500",
 };
 
-const COL_WIDTHS = "grid-cols-[minmax(200px,2fr)_120px_100px_140px_110px_110px_32px]";
+const STATUS_ROW_BG: Record<TaskStatus, string> = {
+  not_started: "hover:bg-muted/40",
+  working:     "hover:bg-blue-50/40 dark:hover:bg-blue-950/20",
+  stuck:       "hover:bg-red-50/40 dark:hover:bg-red-950/20",
+  done:        "hover:bg-green-50/40 dark:hover:bg-green-950/20",
+};
 
 function isOverdue(due: string | null, status: TaskStatus) {
   if (!due || status === "done") return false;
   return new Date(due) < new Date(new Date().toDateString());
 }
 
+type ViewMode = "board" | "list" | "table";
+
 function TasksPage() {
   const { user, isAdmin } = useAuth();
   const { t } = useI18n();
   const statusLabel = useStatusLabel();
   const qc = useQueryClient();
-  const search = useSearch({ from: "/_authenticated/tasks" });
-  const nav = useNavigate();
-
   const [open, setOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [view, setView] = useState<"board" | "list" | "table">("table");
-  const [searchText, setSearchText] = useState("");
+  const [view, setView] = useState<ViewMode>("table");
+
+  // Filters
+  const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterAssignee, setFilterAssignee] = useState<string>("all");
-  const [filterProject, setFilterProject] = useState<string>(search.project ?? "all");
-  const [collapsed, setCollapsed] = useState<Record<TaskStatus, boolean>>({} as any);
+  const [filterProject, setFilterProject] = useState<string>("all");
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id, full_name), department:departments(id, name), project:projects(id, name, color)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(id,name), project:projects(id,name,color)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -83,7 +85,7 @@ function TasksPage() {
 
   const { data: members } = useQuery({
     queryKey: ["members"],
-    queryFn: async () => (await supabase.from("profiles").select("id, full_name, email")).data ?? [],
+    queryFn: async () => (await supabase.from("profiles").select("id,full_name,email")).data ?? [],
   });
 
   const { data: depts } = useQuery({
@@ -93,21 +95,21 @@ function TasksPage() {
 
   const { data: projects } = useQuery({
     queryKey: ["projects"],
-    queryFn: async () => (await supabase.from("projects").select("id, name, color").order("name")).data ?? [],
+    queryFn: async () => (await supabase.from("projects").select("id,name,color").order("name")).data ?? [],
   });
 
   const filtered = useMemo(() => {
     return (tasks ?? []).filter((tk) => {
-      if (searchText && !tk.title.toLowerCase().includes(searchText.toLowerCase())) return false;
+      if (search && !tk.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterPriority !== "all" && tk.priority !== filterPriority) return false;
       if (filterStatus !== "all" && tk.status !== filterStatus) return false;
       if (filterAssignee !== "all" && tk.assignee_id !== filterAssignee) return false;
       if (filterProject !== "all" && tk.project_id !== filterProject) return false;
       return true;
     });
-  }, [tasks, searchText, filterPriority, filterStatus, filterAssignee, filterProject]);
+  }, [tasks, search, filterPriority, filterStatus, filterAssignee, filterProject]);
 
-  const hasFilters = searchText || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all" || filterProject !== "all";
+  const hasFilters = search || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all" || filterProject !== "all";
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
@@ -128,46 +130,50 @@ function TasksPage() {
 
   const canEditTask = (tk: any) => isAdmin || tk.assignee_id === user?.id;
   const detailTask = tasks?.find((tk) => tk.id === detailId);
-  const editTask = tasks?.find((tk) => tk.id === editId);
+  const editTask   = tasks?.find((tk) => tk.id === editId);
 
   const clearFilters = () => {
-    setSearchText(""); setFilterPriority("all"); setFilterStatus("all");
+    setSearch(""); setFilterPriority("all"); setFilterStatus("all");
     setFilterAssignee("all"); setFilterProject("all");
   };
 
-  const toggleCollapse = (s: TaskStatus) =>
-    setCollapsed((prev) => ({ ...prev, [s]: !prev[s] }));
+  const viewButtons: { mode: ViewMode; icon: React.ReactNode; label: string }[] = [
+    { mode: "table", icon: <Table2 className="size-4" />, label: "Table" },
+    { mode: "board", icon: <LayoutGrid className="size-4" />, label: "Board" },
+    { mode: "list",  icon: <LayoutList className="size-4" />, label: "List" },
+  ];
 
-  // Active project label
-  const activeProject = projects?.find((p) => p.id === filterProject);
+  // Group tasks by status for table view
+  const grouped = useMemo(() => {
+    const g: Record<TaskStatus, typeof filtered> = { not_started: [], working: [], stuck: [], done: [] };
+    filtered.forEach((tk) => { if (g[tk.status as TaskStatus]) g[tk.status as TaskStatus].push(tk); });
+    return g;
+  }, [filtered]);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (s: string) => setCollapsedGroups((prev) => {
+    const n = new Set(prev);
+    n.has(s) ? n.delete(s) : n.add(s);
+    return n;
+  });
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       {/* Header */}
       <div className="flex items-start justify-between mb-5 gap-3">
         <div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            {activeProject && (
-              <span className="size-3 rounded-full shrink-0" style={{ background: activeProject.color }} />
-            )}
-            {activeProject ? activeProject.name : t("tasks")}
-          </h1>
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight">{t("tasks")}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{t("tasks_sub")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* View toggle */}
           <div className="flex items-center border rounded-md overflow-hidden">
-            {(["table", "board", "list"] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)}
-                className={cn("px-2.5 py-1.5 text-sm transition-colors",
-                  view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+            {viewButtons.map(({ mode, icon }) => (
+              <button key={mode} onClick={() => setView(mode)}
+                className={cn("px-2.5 py-1.5 transition-colors",
+                  view === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
                 )}
-                title={v.charAt(0).toUpperCase() + v.slice(1) + " view"}
-              >
-                {v === "table" && <LayoutList className="size-4" />}
-                {v === "board" && <LayoutGrid className="size-4" />}
-                {v === "list" && <span className="text-xs font-medium px-0.5">≡</span>}
-              </button>
+              >{icon}</button>
             ))}
           </div>
           {isAdmin && (
@@ -177,7 +183,7 @@ function TasksPage() {
               </DialogTrigger>
               <NewTaskDialog
                 members={members ?? []} depts={depts ?? []} projects={projects ?? []}
-                userId={user?.id ?? ""} defaultProject={filterProject !== "all" ? filterProject : ""}
+                userId={user?.id ?? ""}
                 onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
               />
             </Dialog>
@@ -188,23 +194,15 @@ function TasksPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          <Input value={searchText} onChange={(e) => setSearchText(e.target.value)}
-            placeholder={t("search_tasks")} className="pl-8" />
+          <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("search_tasks")} className="ps-8" />
         </div>
         <div className="flex gap-2 flex-wrap">
           <Select value={filterProject} onValueChange={setFilterProject}>
             <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("project")} /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t("all_projects")}</SelectItem>
-              {(projects ?? []).map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-2 rounded-full shrink-0" style={{ background: p.color }} />
-                    {p.name}
-                  </span>
-                </SelectItem>
-              ))}
+              {(projects ?? []).map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -227,84 +225,116 @@ function TasksPage() {
             <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("assignee")} /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t("all_members")}</SelectItem>
-              {(members ?? []).map((m) => <SelectItem key={m.id} value={m.id}>{m.full_name ?? m.email}</SelectItem>)}
+              {(members ?? []).map((m: any) => <SelectItem key={m.id} value={m.id}>{m.full_name ?? m.email}</SelectItem>)}
             </SelectContent>
           </Select>
           {hasFilters && (
-            <Button variant="ghost" size="sm" className="h-9 px-2" onClick={clearFilters}>
+            <Button variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground" onClick={clearFilters}>
               <X className="size-4" />
             </Button>
           )}
         </div>
       </div>
 
-      {hasFilters && (
-        <p className="text-xs text-muted-foreground mb-3">{filtered.length} {t("results")}</p>
-      )}
+      {hasFilters && <p className="text-xs text-muted-foreground mb-3">{filtered.length} {t("results")}</p>}
 
-      {/* ===== TABLE VIEW (Monday-style) ===== */}
+      {/* TABLE VIEW (Monday-style) */}
       {view === "table" && (
-        <div className="rounded-xl border overflow-hidden">
+        <div className="rounded-lg border overflow-hidden">
           {/* Header row */}
-          <div className={cn("hidden md:grid gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide", COL_WIDTHS)}>
+          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
             <div className="px-4 py-2.5">{t("title")}</div>
             <div className="px-3 py-2.5">{t("status")}</div>
             <div className="px-3 py-2.5">{t("priority")}</div>
             <div className="px-3 py-2.5">{t("assignee")}</div>
             <div className="px-3 py-2.5">{t("due_date")}</div>
             <div className="px-3 py-2.5">{t("project")}</div>
-            <div className="px-3 py-2.5" />
           </div>
-
-          {/* Grouped by status */}
-          {STATUS_ORDER.map((s) => {
-            const rows = filtered.filter((tk) => tk.status === s);
-            if (rows.length === 0 && filterStatus !== "all") return null;
-            const isCollapsed = collapsed[s];
-            return (
-              <div key={s}>
-                {/* Group header */}
-                <button
-                  onClick={() => toggleCollapse(s)}
-                  className="w-full flex items-center gap-2 px-4 py-2 bg-muted/30 hover:bg-muted/50 transition-colors border-b text-sm font-medium"
-                >
-                  <span className={`size-2.5 rounded-full ${STATUS_BG[s]}`} />
-                  <span>{statusLabel(s)}</span>
-                  <span className="text-xs text-muted-foreground">({rows.length})</span>
-                  <ChevronDown className={cn("size-3.5 ml-auto text-muted-foreground transition-transform", isCollapsed && "-rotate-90")} />
-                </button>
-
-                {/* Task rows */}
-                {!isCollapsed && (
-                  <div className="divide-y">
-                    {rows.map((tk) => (
-                      <TableRow
-                        key={tk.id}
-                        task={tk}
-                        canEdit={canEditTask(tk)}
-                        isAdmin={isAdmin}
-                        colWidths={COL_WIDTHS}
-                        onOpen={() => setDetailId(tk.id)}
-                        onEdit={() => setEditId(tk.id)}
-                        onStatusChange={(status) => updateStatus.mutate({ id: tk.id, status })}
-                      />
-                    ))}
-                    {rows.length === 0 && (
-                      <div className="px-4 py-3 text-xs text-muted-foreground italic">{t("empty")}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
 
           {filtered.length === 0 && (
             <div className="py-16 text-center text-sm text-muted-foreground">{t("empty")}</div>
           )}
+
+          {STATUS_ORDER.map((s) => {
+            const rows = grouped[s];
+            if (rows.length === 0) return null;
+            const collapsed = collapsedGroups.has(s);
+            return (
+              <div key={s}>
+                {/* Group header */}
+                <button
+                  onClick={() => toggleGroup(s)}
+                  className="w-full flex items-center gap-2 px-4 py-2 bg-muted/30 border-b hover:bg-muted/50 transition-colors text-left"
+                >
+                  <span className={`size-2.5 rounded-full shrink-0 ${STATUS_BG[s]}`} />
+                  <span className="text-sm font-medium">{statusLabel(s)}</span>
+                  <span className="text-xs text-muted-foreground">({rows.length})</span>
+                  <span className="ms-auto text-muted-foreground text-xs">{collapsed ? "▶" : "▼"}</span>
+                </button>
+
+                {!collapsed && rows.map((tk, i) => (
+                  <div
+                    key={tk.id}
+                    onClick={() => setDetailId(tk.id)}
+                    className={cn(
+                      "grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] border-b last:border-b-0 cursor-pointer transition-colors",
+                      STATUS_ROW_BG[tk.status as TaskStatus]
+                    )}
+                  >
+                    {/* Title cell */}
+                    <div className="px-4 py-3 flex items-center gap-2">
+                      <span className={`hidden md:block w-0.5 h-4 rounded-full shrink-0 ${STATUS_BG[tk.status as TaskStatus]}`} />
+                      <span className="text-sm font-medium truncate">{tk.title}</span>
+                      {isOverdue(tk.due_date, tk.status) && (
+                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                          <CalendarClock className="size-2.5 me-0.5" />Overdue
+                        </Badge>
+                      )}
+                    </div>
+                    {/* Status */}
+                    <div className="hidden md:flex px-3 py-3 items-center">
+                      <StatusPill status={tk.status} />
+                    </div>
+                    {/* Priority */}
+                    <div className="hidden md:flex px-3 py-3 items-center">
+                      <PriorityPill priority={tk.priority} />
+                    </div>
+                    {/* Assignee */}
+                    <div className="hidden md:flex px-3 py-3 items-center">
+                      <span className="text-sm text-muted-foreground truncate">
+                        {tk.assignee?.full_name ?? t("unassigned")}
+                      </span>
+                    </div>
+                    {/* Due date */}
+                    <div className="hidden md:flex px-3 py-3 items-center">
+                      <span className={cn("text-sm", isOverdue(tk.due_date, tk.status) ? "text-destructive font-medium" : "text-muted-foreground")}>
+                        {tk.due_date ?? "—"}
+                      </span>
+                    </div>
+                    {/* Project */}
+                    <div className="hidden md:flex px-3 py-3 items-center gap-1.5">
+                      {tk.project ? (
+                        <>
+                          <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tk.project.color }} />
+                          <span className="text-sm text-muted-foreground truncate">{tk.project.name}</span>
+                        </>
+                      ) : <span className="text-sm text-muted-foreground">—</span>}
+                    </div>
+                    {/* Mobile inline summary */}
+                    <div className="md:hidden px-4 pb-3 flex items-center gap-2 flex-wrap">
+                      <StatusPill status={tk.status} />
+                      <PriorityPill priority={tk.priority} />
+                      <span className="text-xs text-muted-foreground">{tk.assignee?.full_name ?? t("unassigned")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* ===== BOARD VIEW ===== */}
+      {/* BOARD VIEW */}
       {view === "board" && (
         <div className="-mx-4 md:mx-0">
           <div className="flex gap-3 overflow-x-auto px-4 md:px-0 pb-4 snap-x snap-mandatory md:grid md:grid-cols-4 md:overflow-visible">
@@ -315,12 +345,10 @@ function TasksPage() {
                   <div className="flex items-center gap-2 mb-3">
                     <span className={`size-2.5 rounded-full ${STATUS_BG[s]}`} />
                     <h3 className="text-sm font-medium">{statusLabel(s)}</h3>
-                    <span className="text-xs text-muted-foreground ml-auto">{items.length}</span>
+                    <span className="text-xs text-muted-foreground ms-auto">{items.length}</span>
                   </div>
                   <div className="space-y-2 min-h-[80px]">
-                    {items.map((tk) => (
-                      <TaskCard key={tk.id} task={tk} onClick={() => setDetailId(tk.id)} />
-                    ))}
+                    {items.map((tk) => <TaskCard key={tk.id} task={tk} onClick={() => setDetailId(tk.id)} />)}
                     {items.length === 0 && (
                       <div className="text-xs text-muted-foreground/50 italic px-1 py-4 text-center border border-dashed rounded-lg">{t("empty")}</div>
                     )}
@@ -332,35 +360,32 @@ function TasksPage() {
         </div>
       )}
 
-      {/* ===== LIST VIEW ===== */}
+      {/* LIST VIEW */}
       {view === "list" && (
         <div className="space-y-2">
-          {filtered.length === 0 && (
-            <div className="py-16 text-center text-sm text-muted-foreground">{t("empty")}</div>
-          )}
+          {filtered.length === 0 && <div className="py-16 text-center text-sm text-muted-foreground">{t("empty")}</div>}
           {filtered.map((tk) => (
             <Card key={tk.id} onClick={() => setDetailId(tk.id)}
-              className={cn("px-4 py-3 cursor-pointer hover:shadow-sm transition-shadow flex items-center gap-3", STATUS_RING[tk.status as TaskStatus])}>
+              className={cn("px-4 py-3 cursor-pointer hover:shadow-sm transition-shadow flex items-center gap-3", STATUS_RING[tk.status as TaskStatus])}
+            >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium truncate">{tk.title}</span>
                   {isOverdue(tk.due_date, tk.status) && (
-                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-                      <CalendarClock className="size-2.5 mr-0.5" /> Overdue
-                    </Badge>
+                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0"><CalendarClock className="size-2.5 me-0.5" />Overdue</Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
                   <PriorityPill priority={tk.priority} />
                   <StatusPill status={tk.status} />
+                  <span>{tk.assignee?.full_name ?? t("unassigned")}</span>
+                  {tk.due_date && <span>· {tk.due_date}</span>}
                   {tk.project && (
                     <span className="flex items-center gap-1">
-                      <span className="size-1.5 rounded-full" style={{ background: tk.project.color }} />
+                      · <span className="size-2 rounded-full inline-block" style={{ backgroundColor: tk.project.color }} />
                       {tk.project.name}
                     </span>
                   )}
-                  <span>{tk.assignee?.full_name ?? t("unassigned")}</span>
-                  {tk.due_date && <span>· {tk.due_date}</span>}
                 </div>
               </div>
               {isAdmin && (
@@ -374,7 +399,7 @@ function TasksPage() {
         </div>
       )}
 
-      {/* Task Detail */}
+      {/* Detail dialog */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         {detailTask && (
           <TaskDetail
@@ -386,7 +411,7 @@ function TasksPage() {
         )}
       </Dialog>
 
-      {/* Edit Task */}
+      {/* Edit dialog */}
       {editTask && (
         <Dialog open={!!editId} onOpenChange={(o) => !o && setEditId(null)}>
           <EditTaskDialog
@@ -395,101 +420,6 @@ function TasksPage() {
           />
         </Dialog>
       )}
-    </div>
-  );
-}
-
-// ─── Table Row ─────────────────────────────────────────────────────────────
-
-function TableRow({ task, canEdit, isAdmin, colWidths, onOpen, onEdit, onStatusChange }: any) {
-  const { t } = useI18n();
-  const statusLabel = useStatusLabel();
-  const overdue = isOverdue(task.due_date, task.status);
-  return (
-    <div
-      className={cn(
-        "group hover:bg-muted/30 transition-colors cursor-pointer",
-        "flex flex-col md:grid gap-0",
-        "md:" + colWidths
-      )}
-      onClick={onOpen}
-    >
-      {/* Mobile layout */}
-      <div className="flex md:hidden items-start gap-3 px-4 py-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">{task.title}</span>
-            {overdue && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
-                <CalendarClock className="size-2.5 mr-0.5" />Overdue
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <StatusPill status={task.status} />
-            <PriorityPill priority={task.priority} />
-            <span className="text-xs text-muted-foreground">{task.assignee?.full_name ?? t("unassigned")}</span>
-            {task.due_date && <span className={cn("text-xs", overdue ? "text-destructive" : "text-muted-foreground")}>{task.due_date}</span>}
-          </div>
-        </div>
-        {isAdmin && (
-          <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground">
-            <Pencil className="size-3.5" />
-          </button>
-        )}
-      </div>
-
-      {/* Desktop cells */}
-      <div className="hidden md:contents">
-        <div className="px-4 py-2.5 flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium truncate">{task.title}</span>
-          {overdue && (
-            <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-              <CalendarClock className="size-2.5 mr-0.5" />Overdue
-            </Badge>
-          )}
-        </div>
-        <div className="px-3 py-2.5 flex items-center">
-          {canEdit ? (
-            <Select value={task.status} onValueChange={(v) => { onStatusChange(v); }}
-              onOpenChange={(o) => o && event?.stopPropagation?.()}>
-              <SelectTrigger
-                className="h-7 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0 gap-1 w-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_ORDER.map((s) => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          ) : <StatusPill status={task.status} />}
-        </div>
-        <div className="px-3 py-2.5 flex items-center"><PriorityPill priority={task.priority} /></div>
-        <div className="px-3 py-2.5 flex items-center text-sm text-muted-foreground truncate">{task.assignee?.full_name ?? "—"}</div>
-        <div className={cn("px-3 py-2.5 flex items-center text-sm", overdue ? "text-destructive font-medium" : "text-muted-foreground")}>
-          {task.due_date ?? "—"}
-        </div>
-        <div className="px-3 py-2.5 flex items-center gap-1.5 min-w-0">
-          {task.project ? (
-            <>
-              <span className="size-2 rounded-full shrink-0" style={{ background: task.project.color }} />
-              <span className="text-xs text-muted-foreground truncate">{task.project.name}</span>
-            </>
-          ) : <span className="text-xs text-muted-foreground">—</span>}
-        </div>
-        <div className="px-2 py-2.5 flex items-center justify-center">
-          {isAdmin && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground transition-opacity"
-            >
-              <Pencil className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -504,17 +434,11 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm font-medium leading-snug">{task.title}</div>
         {overdue && (
-          <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-            <CalendarClock className="size-2.5 mr-0.5" />Overdue
+          <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0 whitespace-nowrap">
+            <CalendarClock className="size-2.5 me-0.5" />Overdue
           </Badge>
         )}
       </div>
-      {task.project && (
-        <div className="flex items-center gap-1 mt-1.5">
-          <span className="size-1.5 rounded-full" style={{ background: task.project.color }} />
-          <span className="text-xs text-muted-foreground">{task.project.name}</span>
-        </div>
-      )}
       <div className="mt-2 flex items-center gap-2 flex-wrap">
         <PriorityPill priority={task.priority} />
         {task.due_date && (
@@ -525,12 +449,18 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
       </div>
       <div className="mt-2 text-xs text-muted-foreground truncate">
         {task.assignee?.full_name ?? t("unassigned")}
+        {task.project ? (
+          <span className="inline-flex items-center gap-1 ms-1">
+            · <span className="size-1.5 rounded-full inline-block" style={{ backgroundColor: task.project.color }} />
+            {task.project.name}
+          </span>
+        ) : ""}
       </div>
     </Card>
   );
 }
 
-// ─── Shared Task Form ───────────────────────────────────────────────────────
+// ─── Shared form ────────────────────────────────────────────────────────────
 
 function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
   assignee, setAssignee, dept, setDept, start, setStart, due, setDue,
@@ -550,7 +480,7 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>{t("priority")}</Label>
-          <Select value={priority} onValueChange={(v: any) => setPriority(v)}>
+          <Select value={priority} onValueChange={(v: any) => setPriority(v as TaskPriority)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
@@ -566,8 +496,9 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
             <SelectContent>
               {projects.map((p: any) => (
                 <SelectItem key={p.id} value={p.id}>
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-2 rounded-full" style={{ background: p.color }} />{p.name}
+                  <span className="flex items-center gap-2">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
+                    {p.name}
                   </span>
                 </SelectItem>
               ))}
@@ -610,16 +541,15 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
   );
 }
 
-function NewTaskDialog({ members, depts, projects, userId, defaultProject, onCreated }: any) {
+// ─── New Task ────────────────────────────────────────────────────────────────
+
+function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
   const { t } = useI18n();
-  const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
+  const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [assignee, setAssignee] = useState("");
-  const [dept, setDept] = useState("");
-  const [projectId, setProjectId] = useState(defaultProject ?? "");
-  const [start, setStart] = useState("");
-  const [due, setDue] = useState("");
+  const [assignee, setAssignee] = useState(""); const [dept, setDept] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [start, setStart] = useState(""); const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -634,7 +564,7 @@ function NewTaskDialog({ members, depts, projects, userId, defaultProject, onCre
     if (error) return toast.error(error.message);
     toast.success(t("task_created"));
     onCreated();
-    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setStart(""); setDue(""); setPriority("medium");
+    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setProjectId(""); setStart(""); setDue(""); setPriority("medium");
   };
 
   return (
@@ -645,21 +575,21 @@ function NewTaskDialog({ members, depts, projects, userId, defaultProject, onCre
         dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
         start={start} setStart={setStart} due={due} setDue={setDue}
         members={members} depts={depts} projects={projects} busy={busy}
-        submitLabel={busy ? t("creating") : t("create_task")} onSubmit={submit} />
+        submitLabel={busy ? t("creating") : t("create_task")} onSubmit={submit}
+      />
     </DialogContent>
   );
 }
 
+// ─── Edit Task ────────────────────────────────────────────────────────────────
+
 function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
   const { t } = useI18n();
-  const [title, setTitle] = useState(task.title);
-  const [desc, setDesc] = useState(task.description ?? "");
+  const [title, setTitle] = useState(task.title); const [desc, setDesc] = useState(task.description ?? "");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
-  const [assignee, setAssignee] = useState(task.assignee_id ?? "");
-  const [dept, setDept] = useState(task.department_id ?? "");
+  const [assignee, setAssignee] = useState(task.assignee_id ?? ""); const [dept, setDept] = useState(task.department_id ?? "");
   const [projectId, setProjectId] = useState(task.project_id ?? "");
-  const [start, setStart] = useState(task.start_date ?? "");
-  const [due, setDue] = useState(task.due_date ?? "");
+  const [start, setStart] = useState(task.start_date ?? ""); const [due, setDue] = useState(task.due_date ?? "");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -684,14 +614,18 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
         dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
         start={start} setStart={setStart} due={due} setDue={setDue}
         members={members} depts={depts} projects={projects} busy={busy}
-        submitLabel={busy ? t("saving") : t("save_changes")} onSubmit={submit} />
+        submitLabel={busy ? t("saving") : t("save_changes")} onSubmit={submit}
+      />
     </DialogContent>
   );
 }
 
-// ─── Task Detail ────────────────────────────────────────────────────────────
+// ─── Task Detail ─────────────────────────────────────────────────────────────
 
-function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, onEdit }: any) {
+function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, onEdit }: {
+  task: any; canEdit: boolean; isAdmin: boolean; userId: string;
+  onStatusChange: (s: TaskStatus) => void; onDelete: () => void; onEdit: () => void;
+}) {
   const { t } = useI18n();
   const statusLabel = useStatusLabel();
   const qc = useQueryClient();
@@ -721,20 +655,22 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
   return (
     <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <div className="flex items-start gap-2 pr-6">
+        <div className="flex items-start gap-2 pe-6">
           <div className="flex-1">
-            {task.project && (
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="size-2 rounded-full" style={{ background: task.project.color }} />
-                <span className="text-xs text-muted-foreground">{task.project.name}</span>
-              </div>
-            )}
             <DialogTitle className="leading-snug">{task.title}</DialogTitle>
-            {overdue && (
-              <Badge variant="destructive" className="mt-1 text-xs">
-                <CalendarClock className="size-3 mr-1" /> Overdue
-              </Badge>
-            )}
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {overdue && (
+                <Badge variant="destructive" className="text-xs">
+                  <CalendarClock className="size-3 me-1" /> Overdue
+                </Badge>
+              )}
+              {task.project && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="size-2 rounded-full" style={{ backgroundColor: task.project.color }} />
+                  {task.project.name}
+                </span>
+              )}
+            </div>
           </div>
           {isAdmin && (
             <Button variant="outline" size="sm" className="shrink-0" onClick={onEdit}>
@@ -748,63 +684,64 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
         {task.description && (
           <p className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/40 rounded-lg p-3">{task.description}</p>
         )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          {([
-            { label: t("status"), content: canEdit ? (
+          <MetaCell label={t("status")}>
+            {canEdit ? (
               <Select value={task.status} onValueChange={(v) => onStatusChange(v as TaskStatus)}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>{STATUS_ORDER.map((s) => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}</SelectContent>
               </Select>
-            ) : <StatusPill status={task.status} /> },
-            { label: t("priority"), content: <PriorityPill priority={task.priority} /> },
-            { label: t("assignee"), content: task.assignee?.full_name ?? t("unassigned") },
-            { label: t("department"), content: task.department?.name ?? "—" },
-            { label: t("start"), content: task.start_date ?? "—" },
-            { label: t("due"), content: <span className={overdue ? "text-destructive font-medium" : ""}>{task.due_date ?? "—"}</span> },
-          ]).map(({ label, content }) => (
-            <div key={label}>
-              <div className="text-xs text-muted-foreground mb-1">{label}</div>
-              <div>{content}</div>
-            </div>
-          ))}
+            ) : <StatusPill status={task.status} />}
+          </MetaCell>
+          <MetaCell label={t("priority")}><PriorityPill priority={task.priority} /></MetaCell>
+          <MetaCell label={t("assignee")}>{task.assignee?.full_name ?? t("unassigned")}</MetaCell>
+          <MetaCell label={t("department")}>{task.department?.name ?? "—"}</MetaCell>
+          <MetaCell label={t("start")}>{task.start_date ?? "—"}</MetaCell>
+          <MetaCell label={t("due")}>
+            <span className={overdue ? "text-destructive font-medium" : ""}>{task.due_date ?? "—"}</span>
+          </MetaCell>
         </div>
 
         <div className="border-t pt-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-medium">
-            <MessageSquare className="size-4" /> {t("updates")}
-            {(comments ?? []).length > 0 && <span className="ml-auto text-xs text-muted-foreground">{(comments ?? []).length}</span>}
+            <MessageSquare className="size-4" />{t("updates")}
+            {(comments ?? []).length > 0 && <span className="ms-auto text-xs text-muted-foreground">{(comments ?? []).length}</span>}
           </div>
-          <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+          <div className="space-y-3 mb-3 max-h-48 overflow-y-auto">
             {(comments ?? []).map((c: any) => (
               <div key={c.id} className="text-sm bg-muted/40 rounded-lg px-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-xs">{c.author?.full_name ?? "User"}</span>
                   <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</span>
                 </div>
-                <div className="text-muted-foreground mt-0.5 whitespace-pre-wrap text-sm">{c.content}</div>
+                <div className="text-muted-foreground mt-0.5 whitespace-pre-wrap">{c.content}</div>
               </div>
             ))}
-            {!(comments ?? []).length && (
-              <div className="text-xs text-muted-foreground italic py-2">{t("no_updates")}</div>
-            )}
+            {(comments ?? []).length === 0 && <div className="text-xs text-muted-foreground italic py-2">{t("no_updates")}</div>}
           </div>
           <div className="flex gap-2">
             <Textarea value={comment} onChange={(e) => setComment(e.target.value)}
               placeholder={t("post_update")} rows={2} maxLength={1000} className="text-sm resize-none" />
-            <Button onClick={() => post.mutate()} disabled={!comment.trim() || post.isPending} className="self-end">
-              {t("post")}
-            </Button>
+            <Button onClick={() => post.mutate()} disabled={!comment.trim() || post.isPending} className="self-end">{t("post")}</Button>
           </div>
         </div>
 
         {isAdmin && (
           <div className="border-t pt-4 flex justify-end">
-            <Button variant="destructive" size="sm" onClick={onDelete}>
-              <Trash2 className="size-4" /> {t("delete_task")}
-            </Button>
+            <Button variant="destructive" size="sm" onClick={onDelete}><Trash2 className="size-4" /> {t("delete_task")}</Button>
           </div>
         )}
       </div>
     </DialogContent>
+  );
+}
+
+function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1">{label}</div>
+      <div>{children}</div>
+    </div>
   );
 }
