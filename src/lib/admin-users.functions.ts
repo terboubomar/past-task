@@ -3,8 +3,19 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
+const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3)
+  .max(40)
+  .regex(/^[a-z0-9_.-]+$/, "Only letters, numbers, dot, underscore, hyphen");
+
+const USERNAME_EMAIL_DOMAIN = "past-task.local";
+const toEmail = (username: string) => `${username}@${USERNAME_EMAIL_DOMAIN}`;
+
 const newUserSchema = z.object({
-  email: z.string().email().max(255),
+  username: usernameSchema,
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
   department_id: z.string().uuid().nullable(),
@@ -24,11 +35,12 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     if (!isAdmin) throw new Error("Forbidden");
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
+      email: toEmail(data.username),
       password: data.password,
       email_confirm: true,
       user_metadata: {
         full_name: data.full_name,
+        username: data.username,
         department_id: data.department_id ?? "",
         role: data.role,
       },
@@ -38,7 +50,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   });
 
 const bootstrapSchema = z.object({
-  email: z.string().email().max(255),
+  username: usernameSchema,
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
 });
@@ -53,10 +65,10 @@ export const bootstrapCeo = createServerFn({ method: "POST" })
     if ((count ?? 0) > 0) throw new Error("Setup already complete");
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
+      email: toEmail(data.username),
       password: data.password,
       email_confirm: true,
-      user_metadata: { full_name: data.full_name, role: "ceo" },
+      user_metadata: { full_name: data.full_name, username: data.username, role: "ceo" },
     });
     if (error) throw new Error(error.message);
     return { id: created.user?.id };

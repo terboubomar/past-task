@@ -31,7 +31,7 @@ function LoginPage() {
   }, [loading, session, nav]);
 
   const [mode, setMode] = useState<"login" | "bootstrap">("login");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,18 +41,20 @@ function LoginPage() {
     else setMode("login");
   }, [usersCheck]);
 
+  const toEmail = (u: string) => `${u.trim().toLowerCase()}@past-task.local`;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
       if (mode === "bootstrap") {
-        await bootstrap({ data: { email, password, full_name: fullName } });
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        await bootstrap({ data: { username: username.trim().toLowerCase(), password, full_name: fullName } });
+        const { error } = await supabase.auth.signInWithPassword({ email: toEmail(username), password });
         if (error) throw error;
         toast.success("CEO account created");
         nav({ to: "/dashboard" });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: toEmail(username), password });
         if (error) throw error;
         nav({ to: "/dashboard" });
       }
@@ -80,8 +82,8 @@ function LoginPage() {
             </div>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Label htmlFor="username">Username</Label>
+            <Input id="username" autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password">Password</Label>

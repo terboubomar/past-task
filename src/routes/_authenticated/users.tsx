@@ -84,13 +84,13 @@ function UsersPage() {
 
       <Card className="p-0 overflow-hidden">
         <div className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 border-b text-xs text-muted-foreground font-medium uppercase tracking-wide">
-          <div>Name</div><div>Email</div><div>Department</div><div>Role</div><div></div>
+          <div>Name</div><div>Username</div><div>Department</div><div>Role</div><div></div>
         </div>
         <div className="divide-y">
           {(profiles ?? []).map((p) => (
             <div key={p.id} className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 items-center text-sm">
               <div className="font-medium truncate">{p.full_name ?? "—"}</div>
-              <div className="text-muted-foreground truncate">{p.email}</div>
+              <div className="text-muted-foreground truncate">{(p.email ?? "").split("@")[0]}</div>
               <div>{p.department?.name ?? <span className="text-muted-foreground">—</span>}</div>
               <div className="flex gap-1">
                 {p.roles.map((r) => (
@@ -114,7 +114,7 @@ function UsersPage() {
 }
 
 function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: () => void; create: any }) {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<"ceo" | "admin" | "member">("member");
@@ -125,10 +125,10 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
     e.preventDefault();
     setBusy(true);
     try {
-      await create({ data: { email, password, full_name: name, role, department_id: dept || null } });
+      await create({ data: { username: username.trim().toLowerCase(), password, full_name: name, role, department_id: dept || null } });
       toast.success("User created");
       onCreated();
-      setEmail(""); setPassword(""); setName(""); setDept(""); setRole("member");
+      setUsername(""); setPassword(""); setName(""); setDept(""); setRole("member");
     } catch (err: any) {
       toast.error(err.message);
     } finally { setBusy(false); }
@@ -143,8 +143,8 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div className="space-y-1.5">
-          <Label>Email</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Label>Username</Label>
+          <Input autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} pattern="[a-zA-Z0-9_.\-]+" />
         </div>
         <div className="space-y-1.5">
           <Label>Temporary password</Label>
