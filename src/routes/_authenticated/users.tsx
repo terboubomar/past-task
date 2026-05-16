@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/users")({
 });
 
 function UsersPage() {
-  const { isAdmin, loading } = useAuth();
+  const { isAdmin, isSuperAdmin, loading } = useAuth();
   const { t } = useI18n();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -65,6 +65,13 @@ function UsersPage() {
     throw redirect({ to: "/dashboard" });
   }
 
+  const roleBadgeClass = (r: string) => {
+    if (r === "super_admin") return "text-xs px-2 py-0.5 rounded bg-destructive/15 text-destructive font-semibold uppercase";
+    if (r === "ceo") return "text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700 font-semibold uppercase dark:bg-orange-900/20 dark:text-orange-400";
+    if (r === "admin") return "text-xs px-2 py-0.5 rounded bg-primary/10 text-primary font-medium uppercase";
+    return "text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase";
+  };
+
   return (
     <div className="p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
@@ -78,6 +85,7 @@ function UsersPage() {
           </DialogTrigger>
           <NewUserDialog
             depts={depts ?? []}
+            isSuperAdmin={isSuperAdmin}
             onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["profiles-roles"] }); }}
             create={create}
           />
@@ -91,14 +99,12 @@ function UsersPage() {
         <div className="divide-y">
           {(profiles ?? []).map((p) => (
             <div key={p.id} className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 items-center text-sm">
-              <div className="font-medium truncate">{p.full_name ?? "—"}</div>
+              <div className="font-medium truncate">{p.full_name ?? "\u2014"}</div>
               <div className="text-muted-foreground truncate">{(p.email ?? "").split("@")[0]}</div>
-              <div>{p.department?.name ?? <span className="text-muted-foreground">—</span>}</div>
-              <div className="flex gap-1">
+              <div>{p.department?.name ?? <span className="text-muted-foreground">\u2014</span>}</div>
+              <div className="flex gap-1 flex-wrap">
                 {p.roles.map((r) => (
-                  <span key={r} className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary font-medium uppercase">
-                    {r}
-                  </span>
+                  <span key={r} className={roleBadgeClass(r)}>{r.replace("_", " ")}</span>
                 ))}
               </div>
               <Button variant="ghost" size="icon" onClick={() => removeUser.mutate(p.id)}>
@@ -115,12 +121,19 @@ function UsersPage() {
   );
 }
 
-function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: () => void; create: any }) {
+function NewUserDialog({
+  depts, isSuperAdmin, onCreated, create,
+}: {
+  depts: any[];
+  isSuperAdmin: boolean;
+  onCreated: () => void;
+  create: any;
+}) {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"ceo" | "admin" | "member">("member");
+  const [role, setRole] = useState<"super_admin" | "ceo" | "admin" | "member">("member");
   const [dept, setDept] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
@@ -162,13 +175,16 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
                 <SelectItem value="member">{t("member")}</SelectItem>
                 <SelectItem value="admin">{t("admin")}</SelectItem>
                 <SelectItem value="ceo">{t("ceo")}</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value="super_admin">{t("super_admin")}</SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label>{t("department")}</Label>
             <Select value={dept} onValueChange={setDept}>
-              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
               <SelectContent>
                 {depts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
               </SelectContent>

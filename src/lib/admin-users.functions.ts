@@ -19,7 +19,7 @@ const newUserSchema = z.object({
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
   department_id: z.string().uuid().nullable(),
-  role: z.enum(["ceo", "admin", "member"]),
+  role: z.enum(["super_admin", "ceo", "admin", "member"]),
 });
 
 export const adminCreateUser = createServerFn({ method: "POST" })
@@ -31,8 +31,14 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
-    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin");
+    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin" || r.role === "super_admin");
     if (!isAdmin) throw new Error("Forbidden");
+
+    // Only super_admin can create another super_admin
+    if (data.role === "super_admin") {
+      const isSuperAdmin = roles?.some((r) => r.role === "super_admin");
+      if (!isSuperAdmin) throw new Error("Only a Super Admin can create another Super Admin");
+    }
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email: toEmail(data.username),
@@ -88,7 +94,7 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
     const { userId } = context;
     const { data: roles } = await supabaseAdmin
       .from("user_roles").select("role").eq("user_id", userId);
-    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin");
+    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin" || r.role === "super_admin");
     if (!isAdmin) throw new Error("Forbidden");
     if (data.user_id === userId) throw new Error("Cannot delete yourself");
     const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
