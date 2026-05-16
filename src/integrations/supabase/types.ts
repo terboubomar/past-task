@@ -100,6 +100,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "task_comments_author_profile_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "task_comments_task_id_fkey"
             columns: ["task_id"]
             isOneToOne: false
@@ -152,6 +159,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tasks_assignee_profile_fkey"
+            columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_department_id_fkey"
             columns: ["department_id"]
