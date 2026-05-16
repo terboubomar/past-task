@@ -1,27 +1,29 @@
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut, Languages } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
-  { to: "/tasks", label: "Tasks", icon: KanbanSquare, adminOnly: false },
-  { to: "/users", label: "Users", icon: Users, adminOnly: true },
-  { to: "/departments", label: "Departments", icon: Building2, adminOnly: true },
-] as const;
-
 export function AppLayout() {
   const { user, isAdmin, signOut } = useAuth();
+  const { t, lang, toggle } = useI18n();
   const loc = useLocation();
   const nav2 = useNavigate();
 
+  const nav = [
+    { to: "/dashboard", label: t("nav_dashboard"), icon: LayoutDashboard, adminOnly: false },
+    { to: "/tasks", label: t("nav_tasks"), icon: KanbanSquare, adminOnly: false },
+    { to: "/users", label: t("nav_users"), icon: Users, adminOnly: true },
+    { to: "/departments", label: t("nav_departments"), icon: Building2, adminOnly: true },
+  ];
+
   return (
     <div className="min-h-screen flex bg-background text-foreground">
-      <aside className="w-60 border-r border-sidebar-border bg-sidebar flex flex-col">
+      <aside className="w-60 border-e border-sidebar-border bg-sidebar flex flex-col">
         <div className="px-5 py-5 border-b border-sidebar-border">
           <div className="text-lg font-semibold tracking-tight">Past-Task</div>
-          <div className="text-xs text-muted-foreground mt-0.5">Team workflows</div>
+          <div className="text-xs text-muted-foreground mt-0.5">{t("app_tagline")}</div>
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {nav.filter(n => !n.adminOnly || isAdmin).map(n => {
@@ -40,14 +42,17 @@ export function AppLayout() {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-sidebar-border">
+        <div className="p-3 border-t border-sidebar-border space-y-1">
           <div className="px-2 pb-2">
             <div className="text-sm font-medium truncate">{user?.user_metadata?.full_name ?? user?.email}</div>
-            <div className="text-xs text-muted-foreground truncate">{user?.email}</div>
+            <div className="text-xs text-muted-foreground truncate">{(user?.email ?? "").split("@")[0]}</div>
           </div>
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={toggle}>
+            <Languages className="size-4" /> {lang === "ar" ? "English" : "العربية"}
+          </Button>
           <Button variant="ghost" size="sm" className="w-full justify-start"
             onClick={async () => { await signOut(); nav2({ to: "/login" }); }}>
-            <LogOut className="size-4" /> Sign out
+            <LogOut className="size-4" /> {t("sign_out")}
           </Button>
         </div>
       </aside>
