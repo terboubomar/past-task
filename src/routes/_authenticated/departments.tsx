@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/_authenticated/departments")({
 
 function DeptPage() {
   const { isAdmin, loading } = useAuth();
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -40,7 +42,7 @@ function DeptPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["departments"] });
       setOpen(false); setName(""); setDesc("");
-      toast.success("Department created");
+      toast.success(t("department_created"));
     },
     onError: (e) => toast.error(e.message),
   });
@@ -57,25 +59,25 @@ function DeptPage() {
     <div className="p-8 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Departments</h1>
-          <p className="text-sm text-muted-foreground mt-1">Organize teams that own tasks.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("departments")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("departments_sub")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="size-4" />New department</Button>
+            <Button><Plus className="size-4" />{t("new_department")}</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>New department</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{t("new_department")}</DialogTitle></DialogHeader>
             <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4">
               <div className="space-y-1.5">
-                <Label>Name</Label>
+                <Label>{t("name")}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
               </div>
               <div className="space-y-1.5">
-                <Label>Description</Label>
+                <Label>{t("description")}</Label>
                 <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} maxLength={500} />
               </div>
-              <Button type="submit" disabled={create.isPending} className="w-full">Create</Button>
+              <Button type="submit" disabled={create.isPending} className="w-full">{t("create")}</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -96,7 +98,7 @@ function DeptPage() {
           </Card>
         ))}
         {(depts ?? []).length === 0 && (
-          <div className="col-span-full text-center text-sm text-muted-foreground py-12">No departments yet.</div>
+          <div className="col-span-full text-center text-sm text-muted-foreground py-12">{t("no_departments")}</div>
         )}
       </div>
     </div>
