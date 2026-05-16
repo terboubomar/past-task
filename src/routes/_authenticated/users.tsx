@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ export const Route = createFileRoute("/_authenticated/users")({
 
 function UsersPage() {
   const { isAdmin, loading } = useAuth();
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const create = useServerFn(adminCreateUser);
@@ -55,7 +57,7 @@ function UsersPage() {
 
   const removeUser = useMutation({
     mutationFn: async (id: string) => del({ data: { user_id: id } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["profiles-roles"] }); toast.success("User deleted"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["profiles-roles"] }); toast.success(t("user_deleted")); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -67,12 +69,12 @@ function UsersPage() {
     <div className="p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground mt-1">Create team members and assign them to departments.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("users")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("users_sub")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="size-4" />New user</Button>
+            <Button><Plus className="size-4" />{t("new_user")}</Button>
           </DialogTrigger>
           <NewUserDialog
             depts={depts ?? []}
@@ -84,7 +86,7 @@ function UsersPage() {
 
       <Card className="p-0 overflow-hidden">
         <div className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 border-b text-xs text-muted-foreground font-medium uppercase tracking-wide">
-          <div>Name</div><div>Username</div><div>Department</div><div>Role</div><div></div>
+          <div>{t("name")}</div><div>{t("username")}</div><div>{t("department")}</div><div>{t("role")}</div><div></div>
         </div>
         <div className="divide-y">
           {(profiles ?? []).map((p) => (
@@ -105,7 +107,7 @@ function UsersPage() {
             </div>
           ))}
           {(profiles ?? []).length === 0 && (
-            <div className="px-6 py-12 text-center text-sm text-muted-foreground">No users yet.</div>
+            <div className="px-6 py-12 text-center text-sm text-muted-foreground">{t("no_users")}</div>
           )}
         </div>
       </Card>
@@ -114,6 +116,7 @@ function UsersPage() {
 }
 
 function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: () => void; create: any }) {
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -126,7 +129,7 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
     setBusy(true);
     try {
       await create({ data: { username: username.trim().toLowerCase(), password, full_name: name, role, department_id: dept || null } });
-      toast.success("User created");
+      toast.success(t("user_created"));
       onCreated();
       setUsername(""); setPassword(""); setName(""); setDept(""); setRole("member");
     } catch (err: any) {
@@ -136,34 +139,34 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
 
   return (
     <DialogContent>
-      <DialogHeader><DialogTitle>Create user</DialogTitle></DialogHeader>
+      <DialogHeader><DialogTitle>{t("create_user")}</DialogTitle></DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
-          <Label>Full name</Label>
+          <Label>{t("full_name")}</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div className="space-y-1.5">
-          <Label>Username</Label>
-          <Input autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} pattern="[a-zA-Z0-9_.\-]+" />
+          <Label>{t("username")}</Label>
+          <Input autoCapitalize="none" autoCorrect="off" dir="ltr" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} pattern="[a-zA-Z0-9_.\-]+" />
         </div>
         <div className="space-y-1.5">
-          <Label>Temporary password</Label>
-          <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+          <Label>{t("temp_password")}</Label>
+          <Input type="text" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Role</Label>
+            <Label>{t("role")}</Label>
             <Select value={role} onValueChange={(v) => setRole(v as any)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="member">Member</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="ceo">CEO</SelectItem>
+                <SelectItem value="member">{t("member")}</SelectItem>
+                <SelectItem value="admin">{t("admin")}</SelectItem>
+                <SelectItem value="ceo">{t("ceo")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Department</Label>
+            <Label>{t("department")}</Label>
             <Select value={dept} onValueChange={setDept}>
               <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>
@@ -173,7 +176,7 @@ function NewUserDialog({ depts, onCreated, create }: { depts: any[]; onCreated: 
           </div>
         </div>
         <Button type="submit" disabled={busy} className="w-full">
-          {busy ? "Creating…" : "Create user"}
+          {busy ? t("creating") : t("create_user")}
         </Button>
       </form>
     </DialogContent>
