@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { AppLayout } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,11 +18,5 @@ function AuthGate() {
     return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading…</div>;
   }
   if (!session) return null;
-  return (
-    <AppLayout>
-      <Outlet />
-    </AppLayout>
-  );
+  return <AppLayout />;
 }
-
-export { Outlet };
