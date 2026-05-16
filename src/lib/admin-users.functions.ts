@@ -50,7 +50,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   });
 
 const bootstrapSchema = z.object({
-  email: z.string().email().max(255),
+  username: usernameSchema,
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
 });
@@ -65,10 +65,10 @@ export const bootstrapCeo = createServerFn({ method: "POST" })
     if ((count ?? 0) > 0) throw new Error("Setup already complete");
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
+      email: toEmail(data.username),
       password: data.password,
       email_confirm: true,
-      user_metadata: { full_name: data.full_name, role: "ceo" },
+      user_metadata: { full_name: data.full_name, username: data.username, role: "ceo" },
     });
     if (error) throw new Error(error.message);
     return { id: created.user?.id };
