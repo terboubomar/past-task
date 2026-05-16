@@ -82,8 +82,8 @@ function LoginPage() {
             </div>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Label htmlFor="username">Username</Label>
+            <Input id="username" autoCapitalize="none" autoCorrect="off" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password">Password</Label>
