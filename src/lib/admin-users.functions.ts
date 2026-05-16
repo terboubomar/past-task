@@ -78,6 +78,56 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// —— Update User ——————————————————————————————————————————
+
+const updateUserSchema = z.object({
+  user_id: z.string().uuid(),
+  full_name: z.string().trim().min(1).max(120).optional(),
+  department_id: z.string().uuid().nullable().optional(),
+  role: z.enum(["super_admin", "ceo", "admin", "member"]).optional(),
+  password: z.string().min(8).max(72).optional(),
+});
+
+export const adminUpdateUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => updateUserSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { data: roles } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId);
+    const isAdmin = roles?.some((r) =>
+      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+    );
+    if (!isAdmin) throw new Error("Forbidden");
+    const userMeta: Record<string, unknown> = {};
+    if (data.full_name !== undefined) userMeta.full_name = data.full_name;
+    if (data.department_id !== undefined) userMeta.department_id = data.department_id;
+    if (data.role !== undefined) userMeta.role = data.role;
+    const updatePayload: Parameters<typeof supabaseAdmin.auth.admin.updateUserById>[1] = {
+      user_metadata: userMeta,
+    };
+    if (data.password !== undefined) updatePayload.password = data.password;
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(
+      data.user_id,
+      updatePayload
+    );
+    if (error) throw new Error(error.message);
+    if (data.role !== undefined) {
+      await supabaseAdmin
+        .from("user_roles")
+        .update({ role: data.role })
+        .eq("user_id", data.user_id);
+    }
+    if (data.department_id !== undefined) {
+      await supabaseAdmin
+        .from("user_roles")
+        .update({ department_id: data.department_id })
+        .eq("user_id", data.user_id);
+    }
+    return { ok: true };
+  });
 // ─── Bootstrap CEO ─────────────────────────────────────────────────────────────
 
 const bootstrapSchema = z.object({
