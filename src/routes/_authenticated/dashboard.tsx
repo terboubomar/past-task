@@ -18,7 +18,7 @@ function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_id_fkey(full_name), department:departments(name)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(full_name), department:departments(name)")
         .order("due_date", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data ?? [];

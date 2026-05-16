@@ -37,7 +37,7 @@ function TasksPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_id_fkey(id, full_name), department:departments(id, name)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id, full_name), department:departments(id, name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -264,7 +264,7 @@ function TaskDetail({
     queryFn: async () => {
       const { data } = await supabase
         .from("task_comments")
-        .select("*, author:profiles!task_comments_author_id_fkey(full_name)")
+        .select("*, author:profiles!task_comments_author_profile_fkey(full_name)")
         .eq("task_id", task.id)
         .order("created_at", { ascending: true });
       return data ?? [];
