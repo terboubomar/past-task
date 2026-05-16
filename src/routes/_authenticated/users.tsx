@@ -84,13 +84,13 @@ function UsersPage() {
 
       <Card className="p-0 overflow-hidden">
         <div className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 border-b text-xs text-muted-foreground font-medium uppercase tracking-wide">
-          <div>Name</div><div>Email</div><div>Department</div><div>Role</div><div></div>
+          <div>Name</div><div>Username</div><div>Department</div><div>Role</div><div></div>
         </div>
         <div className="divide-y">
           {(profiles ?? []).map((p) => (
             <div key={p.id} className="grid grid-cols-[1.5fr_2fr_1fr_1fr_auto] gap-4 px-6 py-3 items-center text-sm">
               <div className="font-medium truncate">{p.full_name ?? "—"}</div>
-              <div className="text-muted-foreground truncate">{p.email}</div>
+              <div className="text-muted-foreground truncate">{(p.email ?? "").split("@")[0]}</div>
               <div>{p.department?.name ?? <span className="text-muted-foreground">—</span>}</div>
               <div className="flex gap-1">
                 {p.roles.map((r) => (
