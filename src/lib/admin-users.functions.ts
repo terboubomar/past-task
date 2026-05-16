@@ -35,11 +35,12 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     if (!isAdmin) throw new Error("Forbidden");
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
+      email: toEmail(data.username),
       password: data.password,
       email_confirm: true,
       user_metadata: {
         full_name: data.full_name,
+        username: data.username,
         department_id: data.department_id ?? "",
         role: data.role,
       },
