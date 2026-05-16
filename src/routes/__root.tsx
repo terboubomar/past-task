@@ -5,7 +5,6 @@ import {
 import { useEffect } from "react";
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/hooks/use-auth";
-import { I18nProvider } from "@/hooks/use-i18n";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -48,6 +47,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Past-Task — Team Workflows" },
       { name: "description", content: "Internal task management for the team" },
+      { property: "og:title", content: "Past-Task — Team Workflows" },
+      { name: "twitter:title", content: "Past-Task — Team Workflows" },
+      { property: "og:description", content: "Internal task management for the team" },
+      { name: "twitter:description", content: "Internal task management for the team" },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/Mc5885NOSrSxR116k4DburZD2P42/social-images/social-1778946559493-410252268_322932364026793_1321811442643200634_n.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/Mc5885NOSrSxR116k4DburZD2P42/social-images/social-1778946559493-410252268_322932364026793_1321811442643200634_n.webp" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:type", content: "website" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
@@ -59,7 +66,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="en">
       <head><HeadContent /></head>
       <body>{children}<Scripts /></body>
     </html>
@@ -83,13 +90,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <I18nProvider>
-        <AuthProvider>
-          <AuthInvalidator />
-          <Outlet />
-          <Toaster />
-        </AuthProvider>
-      </I18nProvider>
+      <AuthProvider>
+        <AuthInvalidator />
+        <Outlet />
+        <Toaster />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
