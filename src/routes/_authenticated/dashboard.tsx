@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useI18n } from "@/hooks/use-i18n";
 import { Card } from "@/components/ui/card";
-import { STATUS_LABEL, STATUS_ORDER, STATUS_BG, PriorityPill } from "@/components/task-pills";
+import { STATUS_ORDER, STATUS_BG, PriorityPill, useStatusLabel } from "@/components/task-pills";
 import type { TaskStatus } from "@/components/task-pills";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -12,6 +13,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function DashboardPage() {
   const { user, isAdmin } = useAuth();
+  const { t } = useI18n();
+  const statusLabel = useStatusLabel();
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
@@ -34,9 +37,9 @@ function DashboardPage() {
   return (
     <div className="p-8 max-w-7xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("dashboard")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {isAdmin ? "Team-wide task progress at a glance." : "Your work and team status."}
+          {isAdmin ? t("dashboard_sub_admin") : t("dashboard_sub_member")}
         </p>
       </div>
 
@@ -45,7 +48,7 @@ function DashboardPage() {
           <Card key={s} className="p-5">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className={`size-2 rounded-full ${STATUS_BG[s]}`} />
-              {STATUS_LABEL[s]}
+              {statusLabel(s)}
             </div>
             <div className="mt-2 text-3xl font-semibold">{counts[s] ?? 0}</div>
           </Card>
@@ -54,26 +57,26 @@ function DashboardPage() {
 
       <Card className="p-0 overflow-hidden">
         <div className="px-6 py-4 border-b">
-          <h2 className="font-medium">My tasks</h2>
+          <h2 className="font-medium">{t("my_tasks")}</h2>
         </div>
         {myTasks.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-            No tasks assigned to you.
+            {t("no_tasks_assigned")}
           </div>
         ) : (
           <div className="divide-y">
-            {myTasks.map((t) => (
-              <div key={t.id} className="px-6 py-3 flex items-center gap-4 hover:bg-muted/40">
-                <div className={`size-2 rounded-full ${STATUS_BG[t.status]}`} />
+            {myTasks.map((tk) => (
+              <div key={tk.id} className="px-6 py-3 flex items-center gap-4 hover:bg-muted/40">
+                <div className={`size-2 rounded-full ${STATUS_BG[tk.status]}`} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{t.title}</div>
+                  <div className="font-medium truncate">{tk.title}</div>
                   <div className="text-xs text-muted-foreground">
-                    {t.department?.name ?? "No department"} · {STATUS_LABEL[t.status]}
+                    {tk.department?.name ?? t("no_department")} · {statusLabel(tk.status)}
                   </div>
                 </div>
-                <PriorityPill priority={t.priority} />
-                <div className="text-xs text-muted-foreground w-24 text-right">
-                  {t.due_date ?? "—"}
+                <PriorityPill priority={tk.priority} />
+                <div className="text-xs text-muted-foreground w-24 text-end">
+                  {tk.due_date ?? "—"}
                 </div>
               </div>
             ))}
