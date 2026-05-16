@@ -1,9 +1,10 @@
-import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Plus, MessageSquare, Trash2, Search, LayoutList,
   LayoutGrid, Pencil, CalendarClock, X, Table2,
+  Paperclip, Upload, FileText, FileImage, FileSpreadsheet, File, Download,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,6 +53,36 @@ function isOverdue(due: string | null, status: TaskStatus) {
   return new Date(due) < new Date(new Date().toDateString());
 }
 
+// ─── File type helpers ───────────────────────────────────────────────────────
+
+function getFileIcon(mime: string) {
+  if (mime.startsWith("image/")) return <FileImage className="size-4 text-blue-500" />;
+  if (mime === "application/pdf") return <FileText className="size-4 text-red-500" />;
+  if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv"))
+    return <FileSpreadsheet className="size-4 text-green-600" />;
+  if (mime.includes("word") || mime.includes("document"))
+    return <FileText className="size-4 text-blue-700" />;
+  return <File className="size-4 text-muted-foreground" />;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const ACCEPTED_TYPES = [
+  "image/*",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+].join(",");
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+
 type ViewMode = "board" | "list" | "table";
 
 function TasksPage() {
@@ -64,7 +95,6 @@ function TasksPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("table");
 
-  // Filters
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -143,7 +173,6 @@ function TasksPage() {
     { mode: "list",  icon: <LayoutList className="size-4" />, label: "List" },
   ];
 
-  // Group tasks by status for table view
   const grouped = useMemo(() => {
     const g: Record<TaskStatus, typeof filtered> = { not_started: [], working: [], stuck: [], done: [] };
     filtered.forEach((tk) => { if (g[tk.status as TaskStatus]) g[tk.status as TaskStatus].push(tk); });
@@ -166,7 +195,6 @@ function TasksPage() {
           <p className="text-sm text-muted-foreground mt-0.5">{t("tasks_sub")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* View toggle */}
           <div className="flex items-center border rounded-md overflow-hidden">
             {viewButtons.map(({ mode, icon }) => (
               <button key={mode} onClick={() => setView(mode)}
@@ -238,10 +266,9 @@ function TasksPage() {
 
       {hasFilters && <p className="text-xs text-muted-foreground mb-3">{filtered.length} {t("results")}</p>}
 
-      {/* TABLE VIEW (Monday-style) */}
+      {/* TABLE VIEW */}
       {view === "table" && (
         <div className="rounded-lg border overflow-hidden">
-          {/* Header row */}
           <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
             <div className="px-4 py-2.5">{t("title")}</div>
             <div className="px-3 py-2.5">{t("status")}</div>
@@ -261,7 +288,6 @@ function TasksPage() {
             const collapsed = collapsedGroups.has(s);
             return (
               <div key={s}>
-                {/* Group header */}
                 <button
                   onClick={() => toggleGroup(s)}
                   className="w-full flex items-center gap-2 px-4 py-2 bg-muted/30 border-b hover:bg-muted/50 transition-colors text-left"
@@ -272,7 +298,7 @@ function TasksPage() {
                   <span className="ms-auto text-muted-foreground text-xs">{collapsed ? "▶" : "▼"}</span>
                 </button>
 
-                {!collapsed && rows.map((tk, i) => (
+                {!collapsed && rows.map((tk) => (
                   <div
                     key={tk.id}
                     onClick={() => setDetailId(tk.id)}
@@ -281,7 +307,6 @@ function TasksPage() {
                       STATUS_ROW_BG[tk.status as TaskStatus]
                     )}
                   >
-                    {/* Title cell */}
                     <div className="px-4 py-3 flex items-center gap-2">
                       <span className={`hidden md:block w-0.5 h-4 rounded-full shrink-0 ${STATUS_BG[tk.status as TaskStatus]}`} />
                       <span className="text-sm font-medium truncate">{tk.title}</span>
@@ -291,27 +316,16 @@ function TasksPage() {
                         </Badge>
                       )}
                     </div>
-                    {/* Status */}
+                    <div className="hidden md:flex px-3 py-3 items-center"><StatusPill status={tk.status} /></div>
+                    <div className="hidden md:flex px-3 py-3 items-center"><PriorityPill priority={tk.priority} /></div>
                     <div className="hidden md:flex px-3 py-3 items-center">
-                      <StatusPill status={tk.status} />
+                      <span className="text-sm text-muted-foreground truncate">{tk.assignee?.full_name ?? t("unassigned")}</span>
                     </div>
-                    {/* Priority */}
-                    <div className="hidden md:flex px-3 py-3 items-center">
-                      <PriorityPill priority={tk.priority} />
-                    </div>
-                    {/* Assignee */}
-                    <div className="hidden md:flex px-3 py-3 items-center">
-                      <span className="text-sm text-muted-foreground truncate">
-                        {tk.assignee?.full_name ?? t("unassigned")}
-                      </span>
-                    </div>
-                    {/* Due date */}
                     <div className="hidden md:flex px-3 py-3 items-center">
                       <span className={cn("text-sm", isOverdue(tk.due_date, tk.status) ? "text-destructive font-medium" : "text-muted-foreground")}>
                         {tk.due_date ?? "—"}
                       </span>
                     </div>
-                    {/* Project */}
                     <div className="hidden md:flex px-3 py-3 items-center gap-1.5">
                       {tk.project ? (
                         <>
@@ -320,7 +334,6 @@ function TasksPage() {
                         </>
                       ) : <span className="text-sm text-muted-foreground">—</span>}
                     </div>
-                    {/* Mobile inline summary */}
                     <div className="md:hidden px-4 pb-3 flex items-center gap-2 flex-wrap">
                       <StatusPill status={tk.status} />
                       <PriorityPill priority={tk.priority} />
@@ -620,6 +633,164 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
   );
 }
 
+// ─── Attachments section ─────────────────────────────────────────────────────
+
+function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: string; canEdit: boolean }) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const { data: attachments } = useQuery({
+    queryKey: ["attachments", taskId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("task_attachments")
+        .select("*, uploader:profiles!task_attachments_uploaded_by_fkey(full_name)")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File too large. Max size is ${formatBytes(MAX_FILE_SIZE)}`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${taskId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("task-attachments")
+        .upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+
+      const { error: dbError } = await supabase.from("task_attachments").insert({
+        task_id: taskId,
+        uploaded_by: userId,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type,
+        storage_path: path,
+      });
+      if (dbError) throw dbError;
+
+      toast.success(t("attachment_uploaded"));
+      qc.invalidateQueries({ queryKey: ["attachments", taskId] });
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const deleteAttachment = async (att: any) => {
+    await supabase.storage.from("task-attachments").remove([att.storage_path]);
+    await supabase.from("task_attachments").delete().eq("id", att.id);
+    toast.success(t("attachment_deleted"));
+    qc.invalidateQueries({ queryKey: ["attachments", taskId] });
+  };
+
+  const downloadAttachment = async (att: any) => {
+    const { data } = await supabase.storage
+      .from("task-attachments")
+      .createSignedUrl(att.storage_path, 60);
+    if (data?.signedUrl) {
+      const a = document.createElement("a");
+      a.href = data.signedUrl;
+      a.download = att.file_name;
+      a.target = "_blank";
+      a.click();
+    }
+  };
+
+  return (
+    <div className="border-t pt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Paperclip className="size-4" />
+        <span className="text-sm font-medium">{t("attachments")}</span>
+        {(attachments ?? []).length > 0 && (
+          <span className="ms-auto text-xs text-muted-foreground">{(attachments ?? []).length}</span>
+        )}
+      </div>
+
+      {/* Drop zone */}
+      {canEdit && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            "border-2 border-dashed rounded-lg px-4 py-5 text-center cursor-pointer transition-colors mb-3",
+            dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40"
+          )}
+        >
+          <Upload className="size-5 mx-auto mb-1.5 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            {uploading ? t("uploading") : t("upload_file")}
+          </p>
+          <p className="text-[10px] text-muted-foreground/60 mt-0.5">IMG · PDF · Word · Excel — max 20 MB</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_TYPES}
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+            disabled={uploading}
+          />
+        </div>
+      )}
+
+      {/* Attachment list */}
+      <div className="space-y-1.5">
+        {(attachments ?? []).length === 0 && (
+          <p className="text-xs text-muted-foreground italic py-2">{t("no_attachments")}</p>
+        )}
+        {(attachments ?? []).map((att: any) => (
+          <div key={att.id}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors group"
+          >
+            <div className="shrink-0">{getFileIcon(att.mime_type)}</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">{att.file_name}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {formatBytes(att.file_size)}
+                {att.uploader?.full_name && ` · ${att.uploader.full_name}`}
+                {` · ${new Date(att.created_at).toLocaleDateString()}`}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button
+                onClick={() => downloadAttachment(att)}
+                className="p-1 rounded hover:bg-background text-muted-foreground"
+                title="Download"
+              >
+                <Download className="size-3.5" />
+              </button>
+              {(canEdit || att.uploaded_by === userId) && (
+                <button
+                  onClick={() => deleteAttachment(att)}
+                  className="p-1 rounded hover:bg-background text-destructive"
+                  title="Delete"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Task Detail ─────────────────────────────────────────────────────────────
 
 function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, onEdit }: {
@@ -703,6 +874,10 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
           </MetaCell>
         </div>
 
+        {/* Attachments */}
+        <TaskAttachments taskId={task.id} userId={userId} canEdit={canEdit} />
+
+        {/* Comments */}
         <div className="border-t pt-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-medium">
             <MessageSquare className="size-4" />{t("updates")}

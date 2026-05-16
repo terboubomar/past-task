@@ -67,6 +67,13 @@ const DICT = {
     all_priorities: "All priorities",
     all_members: "All members",
     results: "results",
+    // Attachments
+    attachments: "Attachments",
+    upload_file: "Upload file",
+    no_attachments: "No attachments yet.",
+    uploading: "Uploading\u2026",
+    attachment_uploaded: "File uploaded",
+    attachment_deleted: "File deleted",
     // Departments
     departments: "Departments",
     departments_sub: "Organize teams that own tasks.",
@@ -177,6 +184,13 @@ const DICT = {
     all_priorities: "\u0643\u0644 \u0627\u0644\u0623\u0648\u0644\u0648\u064a\u0627\u062a",
     all_members: "\u0643\u0644 \u0627\u0644\u0623\u0639\u0636\u0627\u0621",
     results: "\u0646\u062a\u0627\u0626\u062c",
+    // Attachments
+    attachments: "\u0627\u0644\u0645\u0631\u0641\u0642\u0627\u062a",
+    upload_file: "\u0631\u0641\u0639 \u0645\u0644\u0641",
+    no_attachments: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u0631\u0641\u0642\u0627\u062a \u0628\u0639\u062f.",
+    uploading: "\u062c\u0627\u0631\u064a \u0627\u0644\u0631\u0641\u0639\u2026",
+    attachment_uploaded: "\u062a\u0645 \u0631\u0641\u0639 \u0627\u0644\u0645\u0644\u0641",
+    attachment_deleted: "\u062a\u0645 \u062d\u0630\u0641 \u0627\u0644\u0645\u0644\u0641",
     departments: "\u0627\u0644\u0623\u0642\u0633\u0627\u0645",
     departments_sub: "\u0646\u0638\u0651\u0645 \u0627\u0644\u0641\u0631\u0642 \u0627\u0644\u0645\u0633\u0624\u0648\u0644\u0629 \u0639\u0646 \u0627\u0644\u0645\u0647\u0627\u0645.",
     new_department: "\u0642\u0633\u0645 \u062c\u062f\u064a\u062f",
