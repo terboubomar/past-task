@@ -14,6 +14,8 @@ const usernameSchema = z
 const USERNAME_EMAIL_DOMAIN = "past-task.local";
 const toEmail = (username: string) => `${username}@${USERNAME_EMAIL_DOMAIN}`;
 
+// ─── Create User ──────────────────────────────────────────────────────────────
+
 const newUserSchema = z.object({
   username: usernameSchema,
   password: z.string().min(8).max(72),
@@ -31,14 +33,15 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
-    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin" || r.role === "super_admin");
+    const isAdmin = roles?.some((r) =>
+      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+    );
     if (!isAdmin) throw new Error("Forbidden");
-
     if (data.role === "super_admin") {
       const isSuperAdmin = roles?.some((r) => r.role === "super_admin");
-      if (!isSuperAdmin) throw new Error("Only a Super Admin can create another Super Admin");
+      if (!isSuperAdmin)
+        throw new Error("Only a Super Admin can create another Super Admin");
     }
-
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email: toEmail(data.username),
       password: data.password,
@@ -53,6 +56,8 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { id: created.user?.id };
   });
+
+// ─── Update User ──────────────────────────────────────────────────────────────
 
 const updateUserSchema = z.object({
   user_id: z.string().uuid(),
@@ -71,14 +76,16 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
-    const isAdmin = callerRoles?.some((r) => r.role === "ceo" || r.role === "admin" || r.role === "super_admin");
+    const isAdmin = callerRoles?.some((r) =>
+      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+    );
     if (!isAdmin) throw new Error("Forbidden");
     if (data.role === "super_admin") {
       const isSuperAdmin = callerRoles?.some((r) => r.role === "super_admin");
-      if (!isSuperAdmin) throw new Error("Only a Super Admin can assign Super Admin role");
+      if (!isSuperAdmin)
+        throw new Error("Only a Super Admin can assign Super Admin role");
     }
-
-    // Update profile (full_name, department_id)
+    // Update profile
     const { error: profErr } = await supabaseAdmin
       .from("profiles")
       .update({
@@ -88,14 +95,12 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
       })
       .eq("id", data.user_id);
     if (profErr) throw new Error(profErr.message);
-
-    // Update role — delete existing rows then insert new one
+    // Replace role
     await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
     const { error: roleErr } = await supabaseAdmin
       .from("user_roles")
       .insert({ user_id: data.user_id, role: data.role });
     if (roleErr) throw new Error(roleErr.message);
-
     // Optionally reset password
     if (data.new_password && data.new_password.length >= 8) {
       const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(
@@ -104,9 +109,10 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
       );
       if (pwErr) throw new Error(pwErr.message);
     }
-
     return { ok: true };
   });
+
+// ─── Bootstrap CEO ────────────────────────────────────────────────────────────
 
 const bootstrapSchema = z.object({
   username: usernameSchema,
@@ -121,16 +127,21 @@ export const bootstrapCeo = createServerFn({ method: "POST" })
       .from("user_roles")
       .select("*", { count: "exact", head: true });
     if ((count ?? 0) > 0) throw new Error("Setup already complete");
-
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email: toEmail(data.username),
       password: data.password,
       email_confirm: true,
-      user_metadata: { full_name: data.full_name, username: data.username, role: "ceo" },
+      user_metadata: {
+        full_name: data.full_name,
+        username: data.username,
+        role: "ceo",
+      },
     });
     if (error) throw new Error(error.message);
     return { id: created.user?.id };
   });
+
+// ─── Has Any Users ────────────────────────────────────────────────────────────
 
 export const hasAnyUsers = createServerFn({ method: "GET" }).handler(async () => {
   const { count } = await supabaseAdmin
@@ -139,14 +150,20 @@ export const hasAnyUsers = createServerFn({ method: "GET" }).handler(async () =>
   return { hasUsers: (count ?? 0) > 0 };
 });
 
+// ─── Delete User ──────────────────────────────────────────────────────────────
+
 export const adminDeleteUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ user_id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { userId } = context;
     const { data: roles } = await supabaseAdmin
-      .from("user_roles").select("role").eq("user_id", userId);
-    const isAdmin = roles?.some((r) => r.role === "ceo" || r.role === "admin" || r.role === "super_admin");
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId);
+    const isAdmin = roles?.some((r) =>
+      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+    );
     if (!isAdmin) throw new Error("Forbidden");
     if (data.user_id === userId) throw new Error("Cannot delete yourself");
     const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
