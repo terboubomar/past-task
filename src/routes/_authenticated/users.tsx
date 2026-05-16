@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -17,18 +17,28 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { adminCreateUser, adminDeleteUser } from "@/lib/admin-users.functions";
+import { adminCreateUser, adminUpdateUser, adminDeleteUser } from "@/lib/admin-users.functions";
 
 export const Route = createFileRoute("/_authenticated/users")({
   component: UsersPage,
 });
 
+type Profile = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  department: { id: string; name: string } | null;
+  roles: string[];
+};
+
 function UsersPage() {
   const { isAdmin, isSuperAdmin, loading } = useAuth();
   const { t } = useI18n();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Profile | null>(null);
   const create = useServerFn(adminCreateUser);
+  const update = useServerFn(adminUpdateUser);
   const del = useServerFn(adminDeleteUser);
 
   const { data: profiles } = useQuery({
@@ -45,7 +55,7 @@ function UsersPage() {
         arr.push(r.role);
         rmap.set(r.user_id, arr);
       });
-      return (profs ?? []).map((p) => ({ ...p, roles: rmap.get(p.id) ?? [] }));
+      return (profs ?? []).map((p) => ({ ...p, roles: rmap.get(p.id) ?? [] })) as Profile[];
     },
     enabled: isAdmin,
   });
@@ -72,6 +82,8 @@ function UsersPage() {
     return "text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase";
   };
 
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["profiles-roles"] });
+
   return (
     <div className="p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
@@ -79,14 +91,14 @@ function UsersPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{t("users")}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t("users_sub")}</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button><Plus className="size-4" />{t("new_user")}</Button>
           </DialogTrigger>
           <NewUserDialog
             depts={depts ?? []}
             isSuperAdmin={isSuperAdmin}
-            onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["profiles-roles"] }); }}
+            onCreated={() => { setCreateOpen(false); invalidate(); }}
             create={create}
           />
         </Dialog>
@@ -107,9 +119,14 @@ function UsersPage() {
                   <span key={r} className={roleBadgeClass(r)}>{r.replace("_", " ")}</span>
                 ))}
               </div>
-              <Button variant="ghost" size="icon" onClick={() => removeUser.mutate(p.id)}>
-                <Trash2 className="size-4 text-muted-foreground" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" onClick={() => setEditTarget(p)}>
+                  <Pencil className="size-4 text-muted-foreground" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => removeUser.mutate(p.id)}>
+                  <Trash2 className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
             </div>
           ))}
           {(profiles ?? []).length === 0 && (
@@ -117,10 +134,24 @@ function UsersPage() {
           )}
         </div>
       </Card>
+
+      {/* Edit dialog — controlled outside the list so it doesn't unmount */}
+      <Dialog open={!!editTarget} onOpenChange={(o) => { if (!o) setEditTarget(null); }}>
+        {editTarget && (
+          <EditUserDialog
+            profile={editTarget}
+            depts={depts ?? []}
+            isSuperAdmin={isSuperAdmin}
+            onUpdated={() => { setEditTarget(null); invalidate(); }}
+            update={update}
+          />
+        )}
+      </Dialog>
     </div>
   );
 }
 
+// ─── Create User Dialog ───────────────────────────────────────────────────────
 function NewUserDialog({
   depts, isSuperAdmin, onCreated, create,
 }: {
@@ -193,6 +224,99 @@ function NewUserDialog({
         </div>
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? t("creating") : t("create_user")}
+        </Button>
+      </form>
+    </DialogContent>
+  );
+}
+
+// ─── Edit User Dialog ─────────────────────────────────────────────────────────
+function EditUserDialog({
+  profile, depts, isSuperAdmin, onUpdated, update,
+}: {
+  profile: Profile;
+  depts: any[];
+  isSuperAdmin: boolean;
+  onUpdated: () => void;
+  update: any;
+}) {
+  const { t } = useI18n();
+  const [name, setName] = useState(profile.full_name ?? "");
+  const [role, setRole] = useState<"super_admin" | "ceo" | "admin" | "member">(
+    (profile.roles[0] ?? "member") as any
+  );
+  const [dept, setDept] = useState<string>(profile.department?.id ?? "");
+  const [newPassword, setNewPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await update({
+        data: {
+          user_id: profile.id,
+          full_name: name,
+          role,
+          department_id: dept || null,
+          new_password: newPassword || "",
+        },
+      });
+      toast.success(t("user_updated"));
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{t("edit_user")}: {(profile.email ?? "").split("@")[0]}</DialogTitle>
+      </DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>{t("full_name")}</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} required />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>{t("role")}</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as any)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">{t("member")}</SelectItem>
+                <SelectItem value="admin">{t("admin")}</SelectItem>
+                <SelectItem value="ceo">{t("ceo")}</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value="super_admin">{t("super_admin")}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("department")}</Label>
+            <Select value={dept} onValueChange={setDept}>
+              <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+              <SelectContent>
+                {depts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t("new_password_optional")}</Label>
+          <Input
+            type="text"
+            dir="ltr"
+            placeholder={t("leave_blank_to_keep")}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            minLength={newPassword ? 8 : 0}
+          />
+        </div>
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy ? t("saving") : t("save_changes")}
         </Button>
       </form>
     </DialogContent>
