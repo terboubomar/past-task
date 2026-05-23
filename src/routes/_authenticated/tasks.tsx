@@ -313,14 +313,6 @@ function TasksPage() {
                         {tk.due_date ?? "—"}
                       </span>
                     </div>
-                    <div className="hidden md:flex px-3 py-3 items-center gap-1.5">
-                      {tk.project ? (
-                        <>
-                          <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tk.project.color }} />
-                          <span className="text-sm text-muted-foreground truncate">{tk.project.name}</span>
-                        </>
-                      ) : <span className="text-sm text-muted-foreground">—</span>}
-                    </div>
                     <div className="md:hidden px-4 pb-3 flex items-center gap-2 flex-wrap">
                       <StatusPill status={tk.status} />
                       <PriorityPill priority={tk.priority} />
