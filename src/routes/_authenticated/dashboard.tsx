@@ -193,7 +193,7 @@ function DashboardPage() {
                         <CalendarClock className="size-3 text-destructive shrink-0" />
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">{tk.project?.name ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground">{tk.department?.name ?? "—"}</div>
                   </div>
                   <PriorityPill priority={tk.priority} />
                   <span className={cn("text-xs shrink-0", isOverdue(tk.due_date, tk.status as TaskStatus) ? "text-destructive font-medium" : "text-muted-foreground")}>
@@ -251,11 +251,8 @@ function DashboardPage() {
                   <div className="text-sm font-medium truncate">{tk.title}</div>
                   <div className="text-xs text-muted-foreground flex items-center gap-2">
                     <span>{tk.assignee?.full_name ?? t("unassigned")}</span>
-                    {tk.project && (
-                      <span className="flex items-center gap-1">
-                        · <span className="size-1.5 rounded-full inline-block" style={{ backgroundColor: tk.project.color }} />
-                        {tk.project.name}
-                      </span>
+                    {tk.department && (
+                      <span>· {tk.department.name}</span>
                     )}
                   </div>
                 </div>
@@ -311,42 +308,57 @@ function DashboardPage() {
             )}
           </Card>
 
-          {/* ── PROJECT BREAKDOWN ── */}
-          <Card className="p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b flex items-center gap-2">
-              <Building2 className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Projects</span>
-            </div>
-            {projectStats.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">No projects with tasks</div>
-            ) : (
-              <div className="divide-y max-h-72 overflow-y-auto">
-                {projectStats.map((p: any) => {
-                  const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-                  return (
-                    <div key={p.id} className="px-4 py-2.5 hover:bg-muted/40 transition-colors">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
-                        <span className="text-sm font-medium flex-1 truncate">{p.name}</span>
-                        {p.stuck > 0 && (
-                          <span className="text-[10px] bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400 px-1.5 py-0.5 rounded font-medium">
-                            {p.stuck} stuck
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground shrink-0">{p.done}/{p.total}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all bg-green-500"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
+          {/* ── DEPARTMENT BREAKDOWN ── */}
+          {(() => {
+            const deptStats = Object.values(
+              all.reduce((acc, tk) => {
+                const name = tk.department?.name;
+                if (!name) return acc;
+                if (!acc[name]) acc[name] = { name, total: 0, done: 0, stuck: 0 };
+                acc[name].total++;
+                if (tk.status === "done") acc[name].done++;
+                if (tk.status === "stuck") acc[name].stuck++;
+                return acc;
+              }, {} as Record<string, { name: string; total: number; done: number; stuck: number }>)
+            ).filter((d) => d.total > 0).sort((a, b) => b.total - a.total);
+
+            return (
+              <Card className="p-0 overflow-hidden">
+                <div className="px-4 py-3 border-b flex items-center gap-2">
+                  <Building2 className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Departments</span>
+                </div>
+                {deptStats.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-muted-foreground">No departments with tasks</div>
+                ) : (
+                  <div className="divide-y max-h-72 overflow-y-auto">
+                    {deptStats.map((d) => {
+                      const pct = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
+                      return (
+                        <div key={d.name} className="px-4 py-2.5 hover:bg-muted/40 transition-colors">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-sm font-medium flex-1 truncate">{d.name}</span>
+                            {d.stuck > 0 && (
+                              <span className="text-[10px] bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400 px-1.5 py-0.5 rounded font-medium">
+                                {d.stuck} stuck
+                              </span>
+                            )}
+                            <span className="text-xs text-muted-foreground shrink-0">{d.done}/{d.total}</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all bg-green-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
 
         </div>
       )}
