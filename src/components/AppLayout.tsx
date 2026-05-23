@@ -21,7 +21,7 @@ export function AppLayout() {
 
   const nav = [
     { to: "/dashboard",   label: t("nav_dashboard"),   icon: LayoutDashboard, adminOnly: false },
-    { to: "/projects",    label: t("nav_projects"),    icon: FolderKanban,    adminOnly: false },
+    
     { to: "/tasks",       label: t("nav_tasks"),       icon: KanbanSquare,    adminOnly: false },
     { to: "/users",       label: t("nav_users"),       icon: Users,           adminOnly: true  },
     { to: "/departments", label: t("nav_departments"), icon: Building2,       adminOnly: true  },
