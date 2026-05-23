@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, MessageSquare, Trash2, Search,
   LayoutGrid, LayoutList, Table2, Pencil, CalendarClock, X,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, ChevronLeft, CalendarDays,
   Paperclip, Upload, FileText, FileImage, FileSpreadsheet, File, Download,
   Eye, Loader2, CheckSquare, Square, CheckCheck,
 } from "lucide-react";
@@ -44,6 +44,8 @@ import type { TaskStatus, TaskPriority } from "@/components/task-pills";
 import { cn } from "@/lib/utils";
 import { logActivity } from "@/lib/activity-log";
 import { createNotification, parseMentions } from "@/lib/notify";
+import { TemplatesDialog } from "@/components/TaskTemplates";
+import type { Template } from "@/components/TaskTemplates";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   component: TasksPage,
@@ -106,7 +108,7 @@ function isOverdue(due: string | null, status: TaskStatus) {
   return new Date(due) < new Date(new Date().toDateString());
 }
 
-type ViewMode = "table" | "board" | "list";
+type ViewMode = "table" | "board" | "list" | "cal";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -131,6 +133,9 @@ function TasksPage() {
 
   // Quick-add state
   const [quickAdd, setQuickAdd] = useState<{ status: TaskStatus; title: string } | null>(null);
+
+  // Template state — holds the template to pre-fill into NewTaskDialog
+  const [activeTemplate, setActiveTemplate] = useState<Template | null>(null);
 
   // ── Bulk selection ──────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -336,9 +341,10 @@ function TasksPage() {
   const clearFilters = () => { setSearch(""); setFilterPriority("all"); setFilterStatus("all"); setFilterAssignee("all"); };
 
   const viewButtons = [
-    { mode: "table" as ViewMode, icon: <Table2 className="size-4" />,     label: "Table" },
-    { mode: "board" as ViewMode, icon: <LayoutGrid className="size-4" />, label: "Board" },
-    { mode: "list"  as ViewMode, icon: <LayoutList className="size-4" />, label: "List"  },
+    { mode: "table" as ViewMode, icon: <Table2 className="size-4" />,       label: "Table"    },
+    { mode: "board" as ViewMode, icon: <LayoutGrid className="size-4" />,   label: "Board"    },
+    { mode: "list"  as ViewMode, icon: <LayoutList className="size-4" />,   label: "List"     },
+    { mode: "cal"   as ViewMode, icon: <CalendarDays className="size-4" />, label: "Calendar" },
   ];
 
   const selectedArr = Array.from(selected);
@@ -364,18 +370,26 @@ function TasksPage() {
               ))}
             </div>
             {isAdmin && (
-              <Dialog open={newOpen} onOpenChange={setNewOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="size-4" />
-                    <span className="hidden sm:inline">{t("new_task")}</span>
-                  </Button>
-                </DialogTrigger>
-                <NewTaskDialog
-                  members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""} actorName={actorName}
-                  onCreated={() => { setNewOpen(false); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
+              <>
+                <TemplatesDialog
+                  members={members ?? []}
+                  depts={depts ?? []}
+                  onUse={(tpl) => { setActiveTemplate(tpl); setNewOpen(true); }}
                 />
-              </Dialog>
+                <Dialog open={newOpen} onOpenChange={(o) => { setNewOpen(o); if (!o) setActiveTemplate(null); }}>
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <Plus className="size-4" />
+                      <span className="hidden sm:inline">{t("new_task")}</span>
+                    </Button>
+                  </DialogTrigger>
+                  <NewTaskDialog
+                    members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""} actorName={actorName}
+                    template={activeTemplate}
+                    onCreated={() => { setNewOpen(false); setActiveTemplate(null); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
+                  />
+                </Dialog>
+              </>
             )}
           </div>
         </div>
@@ -655,6 +669,11 @@ function TasksPage() {
             ))}
           </div>
         )}
+        {/* ── CALENDAR VIEW ── */}
+        {view === "cal" && (
+          <CalendarView tasks={filtered} onTaskClick={(id) => setDetailId(id)} />
+        )}
+
       </div>
 
       {/* ── SIDE PANEL ── */}
@@ -1430,35 +1449,51 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
 
 // ─── New Task Dialog ──────────────────────────────────────────────────────────
 
-function NewTaskDialog({ members, depts, userId, actorName, onCreated }: any) {
+function NewTaskDialog({ members, depts, userId, actorName, template, onCreated }: any) {
   const { t } = useI18n();
-  const [title, setTitle]       = useState("");
-  const [desc, setDesc]         = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [assignee, setAssignee] = useState("");
-  const [dept, setDept]         = useState("");
-  const [start, setStart]       = useState("");
-  const [due, setDue]           = useState("");
+  const qc = useQueryClient();
+
+  // Pre-fill from template when it changes
+  const offsetDate = (days: number | null) => {
+    if (!days) return "";
+    const d = new Date(); d.setDate(d.getDate() + days);
+    return d.toISOString().split("T")[0];
+  };
+
+  const [title, setTitle]       = useState(template?.name ? `[${template.name}] ` : "");
+  const [desc, setDesc]         = useState(template?.description ?? "");
+  const [priority, setPriority] = useState<TaskPriority>(template?.priority ?? "medium");
+  const [assignee, setAssignee] = useState(template?.assignee_id ?? "");
+  const [dept, setDept]         = useState(template?.department_id ?? "");
+  const [start, setStart]       = useState(offsetDate(template?.start_offset_days));
+  const [due, setDue]           = useState(offsetDate(template?.due_offset_days));
   const [busy, setBusy]         = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true);
-    const { error } = await supabase.from("tasks").insert({
+    const { data, error } = await supabase.from("tasks").insert({
       title, description: desc || null, priority,
       assignee_id: assignee || null, department_id: dept || null,
       start_date: start || null, due_date: due || null, created_by: userId,
-    });
+    }).select("id").single();
     setBusy(false);
     if (error) return toast.error(error.message);
+
+    // Insert checklist items from template
+    if (data?.id && template?.checklist_items?.length > 0) {
+      await (supabase as any).from("task_checklists").insert(
+        template.checklist_items.map((item: any, i: number) => ({
+          task_id: data.id, text: item.text, completed: false, position: i,
+        }))
+      );
+      qc.invalidateQueries({ queryKey: ["checklist", data.id] });
+    }
+
     logActivity({ actorId: userId, actorName, action: "task.created", entityType: "task", entityName: title });
-    // Notify assignee if one was selected and it's not the creator
     if (assignee && assignee !== userId) {
       createNotification({
-        userId: assignee,
-        actorId: userId,
-        actorName,
-        type: "task.assigned",
-        taskTitle: title,
+        userId: assignee, actorId: userId, actorName,
+        type: "task.assigned", taskId: data?.id, taskTitle: title,
         message: `${actorName} assigned you to "${title}"`,
       });
     }
@@ -1516,6 +1551,151 @@ function EditTaskDialog({ task, members, depts, onSaved }: any) {
         submitLabel={busy ? t("saving") : t("save_changes")} onSubmit={submit}
       />
     </DialogContent>
+  );
+}
+
+// ─── Calendar View ────────────────────────────────────────────────────────────
+
+function getCalendarDays(year: number, month: number) {
+  const firstDay   = new Date(year, month, 1);
+  const lastDay    = new Date(year, month + 1, 0);
+  const startPad   = firstDay.getDay(); // 0=Sun
+  const days: { date: Date; current: boolean }[] = [];
+
+  for (let i = startPad - 1; i >= 0; i--)
+    days.push({ date: new Date(year, month, -i), current: false });
+  for (let d = 1; d <= lastDay.getDate(); d++)
+    days.push({ date: new Date(year, month, d), current: true });
+  const remaining = 42 - days.length;
+  for (let i = 1; i <= remaining; i++)
+    days.push({ date: new Date(year, month + 1, i), current: false });
+
+  return days;
+}
+
+function CalendarView({ tasks, onTaskClick }: { tasks: any[]; onTaskClick: (id: string) => void }) {
+  const [year, setYear]   = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth());
+
+  const days = useMemo(() => getCalendarDays(year, month), [year, month]);
+
+  const tasksByDate = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    tasks.forEach((tk) => {
+      if (tk.due_date) {
+        if (!map[tk.due_date]) map[tk.due_date] = [];
+        map[tk.due_date].push(tk);
+      }
+    });
+    return map;
+  }, [tasks]);
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const prevMonth = () => {
+    if (month === 0) { setMonth(11); setYear((y) => y - 1); }
+    else setMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (month === 11) { setMonth(0); setYear((y) => y + 1); }
+    else setMonth((m) => m + 1);
+  };
+  const goToday = () => { setYear(new Date().getFullYear()); setMonth(new Date().getMonth()); };
+
+  const monthLabel = new Date(year, month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="space-y-3">
+      {/* Month nav */}
+      <div className="flex items-center justify-between">
+        <button onClick={prevMonth} className="p-1.5 rounded hover:bg-muted transition-colors">
+          <ChevronLeft className="size-4" />
+        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold">{monthLabel}</span>
+          <button
+            onClick={goToday}
+            className="text-xs text-muted-foreground hover:text-foreground border rounded px-2 py-0.5 transition-colors"
+          >
+            Today
+          </button>
+        </div>
+        <button onClick={nextMonth} className="p-1.5 rounded hover:bg-muted transition-colors">
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+
+      {/* Day-of-week headers */}
+      <div className="grid grid-cols-7 text-center">
+        {DAYS_OF_WEEK.map((d) => (
+          <div key={d} className="text-[11px] font-semibold text-muted-foreground py-1">{d}</div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 border-l border-t rounded-lg overflow-hidden">
+        {days.map(({ date, current }, i) => {
+          const key      = date.toISOString().split("T")[0];
+          const dayTasks = tasksByDate[key] ?? [];
+          const isToday  = key === today;
+          const isPast   = key < today && current;
+
+          return (
+            <div
+              key={i}
+              className={cn(
+                "border-r border-b min-h-[90px] p-1.5",
+                !current && "bg-muted/20",
+                isToday  && "bg-primary/5"
+              )}
+            >
+              {/* Day number */}
+              <div className={cn(
+                "text-xs font-medium mb-1 size-6 flex items-center justify-center rounded-full",
+                isToday  ? "bg-primary text-primary-foreground" :
+                !current ? "text-muted-foreground/40" :
+                isPast   ? "text-muted-foreground" : "text-foreground"
+              )}>
+                {date.getDate()}
+              </div>
+
+              {/* Task chips */}
+              <div className="space-y-0.5">
+                {dayTasks.slice(0, 3).map((tk) => (
+                  <button
+                    key={tk.id}
+                    onClick={() => onTaskClick(tk.id)}
+                    className={cn(
+                      "w-full text-start text-[10px] px-1.5 py-0.5 rounded truncate font-medium transition-opacity hover:opacity-80",
+                      tk.status === "done"    ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400" :
+                      isPast                  ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" :
+                      tk.status === "working" ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" :
+                      tk.status === "stuck"   ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400" :
+                                               "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {tk.title}
+                  </button>
+                ))}
+                {dayTasks.length > 3 && (
+                  <p className="text-[9px] text-muted-foreground px-1">+{dayTasks.length - 3} more</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-[10px] text-muted-foreground pt-1 flex-wrap">
+        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-blue-500 inline-block" /> Working</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-green-500 inline-block" /> Done</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-orange-400 inline-block" /> Stuck</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-red-500 inline-block" /> Overdue</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded bg-muted inline-block" /> Not started</span>
+      </div>
+    </div>
   );
 }
 
