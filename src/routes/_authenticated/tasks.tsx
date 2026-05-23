@@ -372,12 +372,6 @@ function TasksPage() {
                   <StatusPill status={tk.status} />
                   <span>{tk.assignee?.full_name ?? t("unassigned")}</span>
                   {tk.due_date && <span>· {tk.due_date}</span>}
-                  {tk.project && (
-                    <span className="flex items-center gap-1">
-                      · <span className="size-2 rounded-full inline-block" style={{ backgroundColor: tk.project.color }} />
-                      {tk.project.name}
-                    </span>
-                  )}
                 </div>
               </div>
               {isAdmin && (
