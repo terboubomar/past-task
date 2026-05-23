@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { adminCreateUser, adminDeleteUser, adminUpdateUser } from "@/lib/admin-users-v2.functions";
+import { adminCreateUser, adminDeleteUser } from "@/lib/admin-users.functions";
 
 export const Route = createFileRoute("/_authenticated/users")({
   component: UsersPage,

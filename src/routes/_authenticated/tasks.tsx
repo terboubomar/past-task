@@ -99,14 +99,13 @@ function TasksPage() {
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterAssignee, setFilterAssignee] = useState<string>("all");
-  const [filterProject, setFilterProject] = useState<string>("all");
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(id,name), project:projects(id,name,color)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(id,name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -123,23 +122,18 @@ function TasksPage() {
     queryFn: async () => (await supabase.from("departments").select("*").order("name")).data ?? [],
   });
 
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: async () => (await supabase.from("projects").select("id,name,color").order("name")).data ?? [],
-  });
-
   const filtered = useMemo(() => {
     return (tasks ?? []).filter((tk) => {
       if (search && !tk.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterPriority !== "all" && tk.priority !== filterPriority) return false;
       if (filterStatus !== "all" && tk.status !== filterStatus) return false;
       if (filterAssignee !== "all" && tk.assignee_id !== filterAssignee) return false;
-      if (filterProject !== "all" && tk.project_id !== filterProject) return false;
       return true;
     });
-  }, [tasks, search, filterPriority, filterStatus, filterAssignee, filterProject]);
+  }, [tasks, search, filterPriority, filterStatus, filterAssignee]);
 
-  const hasFilters = search || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all" || filterProject !== "all";
+  const hasFilters = search || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all";
+
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
@@ -164,8 +158,9 @@ function TasksPage() {
 
   const clearFilters = () => {
     setSearch(""); setFilterPriority("all"); setFilterStatus("all");
-    setFilterAssignee("all"); setFilterProject("all");
+    setFilterAssignee("all");
   };
+
 
   const viewButtons: { mode: ViewMode; icon: React.ReactNode; label: string }[] = [
     { mode: "table", icon: <Table2 className="size-4" />, label: "Table" },
@@ -210,7 +205,7 @@ function TasksPage() {
                 <Button size="sm"><Plus className="size-4" /><span className="hidden sm:inline">{t("new_task")}</span></Button>
               </DialogTrigger>
               <NewTaskDialog
-                members={members ?? []} depts={depts ?? []} projects={projects ?? []}
+                members={members ?? []} depts={depts ?? []}
                 userId={user?.id ?? ""}
                 onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
               />
@@ -226,13 +221,6 @@ function TasksPage() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("search_tasks")} className="ps-8" />
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Select value={filterProject} onValueChange={setFilterProject}>
-            <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("project")} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all_projects")}</SelectItem>
-              {(projects ?? []).map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
           <Select value={filterStatus} onValueChange={setFilterStatus}>
             <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("status")} /></SelectTrigger>
             <SelectContent>
@@ -269,13 +257,12 @@ function TasksPage() {
       {/* TABLE VIEW */}
       {view === "table" && (
         <div className="rounded-lg border overflow-hidden">
-          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
             <div className="px-4 py-2.5">{t("title")}</div>
             <div className="px-3 py-2.5">{t("status")}</div>
             <div className="px-3 py-2.5">{t("priority")}</div>
             <div className="px-3 py-2.5">{t("assignee")}</div>
             <div className="px-3 py-2.5">{t("due_date")}</div>
-            <div className="px-3 py-2.5">{t("project")}</div>
           </div>
 
           {filtered.length === 0 && (
@@ -303,7 +290,7 @@ function TasksPage() {
                     key={tk.id}
                     onClick={() => setDetailId(tk.id)}
                     className={cn(
-                      "grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] border-b last:border-b-0 cursor-pointer transition-colors",
+                      "grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr] border-b last:border-b-0 cursor-pointer transition-colors",
                       STATUS_ROW_BG[tk.status as TaskStatus]
                     )}
                   >
@@ -325,14 +312,6 @@ function TasksPage() {
                       <span className={cn("text-sm", isOverdue(tk.due_date, tk.status) ? "text-destructive font-medium" : "text-muted-foreground")}>
                         {tk.due_date ?? "—"}
                       </span>
-                    </div>
-                    <div className="hidden md:flex px-3 py-3 items-center gap-1.5">
-                      {tk.project ? (
-                        <>
-                          <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tk.project.color }} />
-                          <span className="text-sm text-muted-foreground truncate">{tk.project.name}</span>
-                        </>
-                      ) : <span className="text-sm text-muted-foreground">—</span>}
                     </div>
                     <div className="md:hidden px-4 pb-3 flex items-center gap-2 flex-wrap">
                       <StatusPill status={tk.status} />
@@ -393,12 +372,6 @@ function TasksPage() {
                   <StatusPill status={tk.status} />
                   <span>{tk.assignee?.full_name ?? t("unassigned")}</span>
                   {tk.due_date && <span>· {tk.due_date}</span>}
-                  {tk.project && (
-                    <span className="flex items-center gap-1">
-                      · <span className="size-2 rounded-full inline-block" style={{ backgroundColor: tk.project.color }} />
-                      {tk.project.name}
-                    </span>
-                  )}
                 </div>
               </div>
               {isAdmin && (
@@ -428,7 +401,7 @@ function TasksPage() {
       {editTask && (
         <Dialog open={!!editId} onOpenChange={(o) => !o && setEditId(null)}>
           <EditTaskDialog
-            task={editTask} members={members ?? []} depts={depts ?? []} projects={projects ?? []}
+            task={editTask} members={members ?? []} depts={depts ?? []}
             onSaved={() => { setEditId(null); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
           />
         </Dialog>
@@ -462,12 +435,6 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
       </div>
       <div className="mt-2 text-xs text-muted-foreground truncate">
         {task.assignee?.full_name ?? t("unassigned")}
-        {task.project ? (
-          <span className="inline-flex items-center gap-1 ms-1">
-            · <span className="size-1.5 rounded-full inline-block" style={{ backgroundColor: task.project.color }} />
-            {task.project.name}
-          </span>
-        ) : ""}
       </div>
     </Card>
   );
@@ -477,7 +444,7 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
 
 function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
   assignee, setAssignee, dept, setDept, start, setStart, due, setDue,
-  projectId, setProjectId, members, depts, projects, busy, submitLabel, onSubmit }: any) {
+  members, depts, busy, submitLabel, onSubmit }: any) {
   const { t } = useI18n();
   const priorityLabel = usePriorityLabel();
   return (
@@ -490,34 +457,16 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
         <Label>{t("description")}</Label>
         <Textarea value={desc} onChange={(e: any) => setDesc(e.target.value)} rows={3} maxLength={2000} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>{t("priority")}</Label>
-          <Select value={priority} onValueChange={(v: any) => setPriority(v as TaskPriority)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
-                <SelectItem key={p} value={p}>{priorityLabel(p)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{t("project")}</Label>
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-            <SelectContent>
-              {projects.map((p: any) => (
-                <SelectItem key={p.id} value={p.id}>
-                  <span className="flex items-center gap-2">
-                    <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
-                    {p.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="space-y-1.5">
+        <Label>{t("priority")}</Label>
+        <Select value={priority} onValueChange={(v: any) => setPriority(v as TaskPriority)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
+              <SelectItem key={p} value={p}>{priorityLabel(p)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -556,12 +505,11 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
 
 // ─── New Task ────────────────────────────────────────────────────────────────
 
-function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
+function NewTaskDialog({ members, depts, userId, onCreated }: any) {
   const { t } = useI18n();
   const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [assignee, setAssignee] = useState(""); const [dept, setDept] = useState("");
-  const [projectId, setProjectId] = useState("");
   const [start, setStart] = useState(""); const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -570,14 +518,13 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
     const { error } = await supabase.from("tasks").insert({
       title, description: desc || null, priority,
       assignee_id: assignee || null, department_id: dept || null,
-      project_id: projectId || null,
       start_date: start || null, due_date: due || null, created_by: userId,
     });
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(t("task_created"));
     onCreated();
-    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setProjectId(""); setStart(""); setDue(""); setPriority("medium");
+    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setStart(""); setDue(""); setPriority("medium");
   };
 
   return (
@@ -585,9 +532,9 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
       <DialogHeader><DialogTitle>{t("new_task")}</DialogTitle></DialogHeader>
       <TaskForm title={title} setTitle={setTitle} desc={desc} setDesc={setDesc}
         priority={priority} setPriority={setPriority} assignee={assignee} setAssignee={setAssignee}
-        dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
+        dept={dept} setDept={setDept}
         start={start} setStart={setStart} due={due} setDue={setDue}
-        members={members} depts={depts} projects={projects} busy={busy}
+        members={members} depts={depts} busy={busy}
         submitLabel={busy ? t("creating") : t("create_task")} onSubmit={submit}
       />
     </DialogContent>
@@ -596,12 +543,11 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
 
 // ─── Edit Task ────────────────────────────────────────────────────────────────
 
-function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
+function EditTaskDialog({ task, members, depts, onSaved }: any) {
   const { t } = useI18n();
   const [title, setTitle] = useState(task.title); const [desc, setDesc] = useState(task.description ?? "");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [assignee, setAssignee] = useState(task.assignee_id ?? ""); const [dept, setDept] = useState(task.department_id ?? "");
-  const [projectId, setProjectId] = useState(task.project_id ?? "");
   const [start, setStart] = useState(task.start_date ?? ""); const [due, setDue] = useState(task.due_date ?? "");
   const [busy, setBusy] = useState(false);
 
@@ -610,7 +556,6 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
     const { error } = await supabase.from("tasks").update({
       title, description: desc || null, priority,
       assignee_id: assignee || null, department_id: dept || null,
-      project_id: projectId || null,
       start_date: start || null, due_date: due || null,
     }).eq("id", task.id);
     setBusy(false);
@@ -624,9 +569,9 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
       <DialogHeader><DialogTitle>{t("edit_task")}</DialogTitle></DialogHeader>
       <TaskForm title={title} setTitle={setTitle} desc={desc} setDesc={setDesc}
         priority={priority} setPriority={setPriority} assignee={assignee} setAssignee={setAssignee}
-        dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
+        dept={dept} setDept={setDept}
         start={start} setStart={setStart} due={due} setDue={setDue}
-        members={members} depts={depts} projects={projects} busy={busy}
+        members={members} depts={depts} busy={busy}
         submitLabel={busy ? t("saving") : t("save_changes")} onSubmit={submit}
       />
     </DialogContent>

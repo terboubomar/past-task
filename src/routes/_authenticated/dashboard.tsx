@@ -35,7 +35,7 @@ function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(name), project:projects(id,name,color)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -45,12 +45,6 @@ function DashboardPage() {
   const { data: members } = useQuery({
     queryKey: ["members"],
     queryFn: async () => (await supabase.from("profiles").select("id,full_name,email")).data ?? [],
-    enabled: isAdmin,
-  });
-
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: async () => (await supabase.from("projects").select("id,name,color")).data ?? [],
     enabled: isAdmin,
   });
 
@@ -85,17 +79,6 @@ function DashboardPage() {
       overdue: mt.filter((tk) => isOverdue(tk.due_date, tk.status as TaskStatus)).length,
     };
   }).filter((m: any) => m.total > 0).sort((a: any, b: any) => b.total - a.total);
-
-  // Per-project breakdown (admin only)
-  const projectStats = (projects ?? []).map((p: any) => {
-    const pt = all.filter((tk) => tk.project_id === p.id);
-    return {
-      ...p,
-      total: pt.length,
-      done: pt.filter((tk) => tk.status === "done").length,
-      stuck: pt.filter((tk) => tk.status === "stuck").length,
-    };
-  }).filter((p: any) => p.total > 0).sort((a: any, b: any) => b.total - a.total);
 
   return (
     <div className="p-4 md:p-6 max-w-7xl space-y-6">
