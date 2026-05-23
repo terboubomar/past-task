@@ -950,8 +950,11 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
     const { data } = await supabase.storage
       .from("task-attachments").createSignedUrl(att.storage_path, 60);
     if (data?.signedUrl) {
-      const a = document.createElement("a");
-      a.href = data.signedUrl; a.download = att.file_name; a.target = "_blank"; a.click();
+      // Use window.open instead of a programmatic <a> click.
+      // Mobile browsers (iOS Safari) drop the user-gesture context after any
+      // await, so a.click() is silently blocked. window.open survives the
+      // async gap and also works for cross-origin URLs where `download` is ignored.
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     }
   };
 
