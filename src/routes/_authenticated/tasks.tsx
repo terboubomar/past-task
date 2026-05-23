@@ -1451,6 +1451,17 @@ function NewTaskDialog({ members, depts, userId, actorName, onCreated }: any) {
     setBusy(false);
     if (error) return toast.error(error.message);
     logActivity({ actorId: userId, actorName, action: "task.created", entityType: "task", entityName: title });
+    // Notify assignee if one was selected and it's not the creator
+    if (assignee && assignee !== userId) {
+      createNotification({
+        userId: assignee,
+        actorId: userId,
+        actorName,
+        type: "task.assigned",
+        taskTitle: title,
+        message: `${actorName} assigned you to "${title}"`,
+      });
+    }
     toast.success(t("task_created"));
     onCreated();
     setTitle(""); setDesc(""); setAssignee(""); setDept(""); setStart(""); setDue(""); setPriority("medium");
