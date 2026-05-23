@@ -6,6 +6,7 @@ import {
   LayoutGrid, LayoutList, Table2, Pencil, CalendarClock, X,
   ChevronDown, ChevronRight,
   Paperclip, Upload, FileText, FileImage, FileSpreadsheet, File, Download,
+  Eye, Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -889,12 +890,80 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
 
+type PreviewState = { att: any; url: string };
+
+function AttachmentPreview({ preview, onClose }: { preview: PreviewState; onClose: () => void }) {
+  const isImage  = preview.att.mime_type.startsWith("image/");
+  const isPdf    = preview.att.mime_type === "application/pdf";
+  // Office / CSV → Google Docs embedded viewer
+  const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(preview.url)}&embedded=true`;
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex flex-col bg-black/90"
+      onClick={onClose}
+    >
+      {/* Header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 bg-black/60 backdrop-blur shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm text-white font-medium truncate flex-1">{preview.att.file_name}</p>
+        <button
+          onClick={() => window.open(preview.url, "_blank", "noopener,noreferrer")}
+          className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+          title="Open / Download"
+        >
+          <Download className="size-4" />
+        </button>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+          title="Close"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {/* Preview area */}
+      <div
+        className="flex-1 flex items-center justify-center p-4 min-h-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isImage && (
+          <img
+            src={preview.url}
+            alt={preview.att.file_name}
+            className="max-w-full max-h-full object-contain rounded shadow-2xl"
+          />
+        )}
+        {isPdf && (
+          <iframe
+            src={preview.url}
+            title={preview.att.file_name}
+            className="w-full h-full rounded bg-white"
+          />
+        )}
+        {!isImage && !isPdf && (
+          <iframe
+            src={viewerUrl}
+            title={preview.att.file_name}
+            className="w-full h-full rounded bg-white"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: string; canEdit: boolean }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null); // which att is being fetched
 
   const { data: attachments } = useQuery({
     queryKey: ["attachments", taskId],
@@ -950,15 +1019,21 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
     const { data } = await supabase.storage
       .from("task-attachments").createSignedUrl(att.storage_path, 60);
     if (data?.signedUrl) {
-      // Use window.open instead of a programmatic <a> click.
-      // Mobile browsers (iOS Safari) drop the user-gesture context after any
-      // await, so a.click() is silently blocked. window.open survives the
-      // async gap and also works for cross-origin URLs where `download` is ignored.
       window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     }
   };
 
+  const openPreview = async (att: any) => {
+    setLoadingId(att.id);
+    const { data } = await supabase.storage
+      .from("task-attachments").createSignedUrl(att.storage_path, 300); // 5-min URL for viewing
+    setLoadingId(null);
+    if (data?.signedUrl) setPreview({ att, url: data.signedUrl });
+  };
+
   return (
+    <>
+    {preview && <AttachmentPreview preview={preview} onClose={() => setPreview(null)} />}
     <div className="border-t pt-4">
       <div className="flex items-center gap-2 mb-3">
         <Paperclip className="size-4" />
@@ -1015,11 +1090,23 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
                 {` · ${new Date(att.created_at).toLocaleDateString()}`}
               </p>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            {/* Always-visible preview button on mobile; hover-reveal on desktop */}
+            <div className="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => openPreview(att)}
+                className="p-1 rounded hover:bg-background text-muted-foreground"
+                title="Preview"
+                disabled={loadingId === att.id}
+              >
+                {loadingId === att.id
+                  ? <Loader2 className="size-3.5 animate-spin" />
+                  : <Eye className="size-3.5" />
+                }
+              </button>
               <button
                 onClick={() => downloadAttachment(att)}
                 className="p-1 rounded hover:bg-background text-muted-foreground"
-                title="Download"
+                title="Open / Download"
               >
                 <Download className="size-3.5" />
               </button>
@@ -1037,6 +1124,7 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
         ))}
       </div>
     </div>
+    </>
   );
 }
 
