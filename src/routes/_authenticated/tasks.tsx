@@ -43,6 +43,7 @@ import {
 import type { TaskStatus, TaskPriority } from "@/components/task-pills";
 import { cn } from "@/lib/utils";
 import { logActivity } from "@/lib/activity-log";
+import { createNotification, parseMentions } from "@/lib/notify";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   component: TasksPage,
@@ -220,6 +221,18 @@ function TasksPage() {
       else if ("assignee_id" in patch) {
         const assignee = members?.find((m: any) => m.id === patch.assignee_id);
         logActivity({ ...base, action: "task.assignee_changed", meta: { to: assignee?.full_name ?? assignee?.email ?? "Unassigned" } });
+        // Notify the new assignee
+        if (patch.assignee_id && typeof patch.assignee_id === "string") {
+          createNotification({
+            userId: patch.assignee_id,
+            actorId: user?.id ?? "",
+            actorName,
+            type: "task.assigned",
+            taskId: id,
+            taskTitle: task?.title,
+            message: `${actorName} assigned you to "${task?.title}"`,
+          });
+        }
       } else {
         logActivity({ ...base, action: "task.updated" });
       }
@@ -647,6 +660,7 @@ function TasksPage() {
               isAdmin={isAdmin}
               userId={user?.id ?? ""}
               actorName={actorName}
+              members={members ?? []}
               onStatusChange={(status) => updateField.mutate({ id: detailTask.id, patch: { status } })}
               onDelete={() => deleteTask.mutate(detailTask.id)}
               onEdit={() => { setDetailId(null); setEditId(detailTask.id); }}
@@ -893,8 +907,8 @@ function MondayRow({ task, members, canEdit, selected, onSelect, onClick, onUpda
 
 // ─── Task Detail (side-panel body) ───────────────────────────────────────────
 
-function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange, onDelete, onEdit }: {
-  task: any; canEdit: boolean; isAdmin: boolean; userId: string; actorName: string;
+function TaskDetail({ task, canEdit, isAdmin, userId, actorName, members, onStatusChange, onDelete, onEdit }: {
+  task: any; canEdit: boolean; isAdmin: boolean; userId: string; actorName: string; members: any[];
   onStatusChange: (s: TaskStatus) => void; onDelete: () => void; onEdit: () => void;
 }) {
   const { t } = useI18n();
@@ -923,6 +937,36 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
     },
     onSuccess: () => {
       logActivity({ actorId: userId, actorName, action: "comment.posted", entityType: "task", entityId: task.id, entityName: task.title });
+
+      // Notify task assignee (if not the commenter)
+      if (task.assignee_id && task.assignee_id !== userId) {
+        createNotification({
+          userId: task.assignee_id,
+          actorId: userId,
+          actorName,
+          type: "comment.posted",
+          taskId: task.id,
+          taskTitle: task.title,
+          message: `${actorName} commented on "${task.title}"`,
+        });
+      }
+
+      // Notify @mentioned users
+      const mentionedIds = parseMentions(comment, members);
+      mentionedIds.forEach((mid) => {
+        if (mid !== userId && mid !== task.assignee_id) { // avoid duplicates
+          createNotification({
+            userId: mid,
+            actorId: userId,
+            actorName,
+            type: "mention",
+            taskId: task.id,
+            taskTitle: task.title,
+            message: `${actorName} mentioned you in "${task.title}"`,
+          });
+        }
+      });
+
       setComment("");
       qc.invalidateQueries({ queryKey: ["comments", task.id] });
     },

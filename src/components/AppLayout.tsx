@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export function AppLayout() {
   const { user, isAdmin, signOut } = useAuth();
@@ -62,9 +63,12 @@ export function AppLayout() {
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5"><NavLinks /></nav>
         <div className="p-3 border-t border-sidebar-border space-y-1">
-          <div className="px-2 pb-2">
-            <div className="text-sm font-medium truncate">{user?.user_metadata?.full_name ?? user?.email}</div>
-            <div className="text-xs text-muted-foreground truncate">{(user?.email ?? "").split("@")[0]}</div>
+          <div className="px-2 pb-2 flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">{user?.user_metadata?.full_name ?? user?.email}</div>
+              <div className="text-xs text-muted-foreground truncate">{(user?.email ?? "").split("@")[0]}</div>
+            </div>
+            <NotificationBell />
           </div>
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={toggle}>
             <Languages className="size-4" /> {lang === "ar" ? "English" : "العربية"}
@@ -81,9 +85,12 @@ export function AppLayout() {
         {/* Mobile Top Bar */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background sticky top-0 z-30">
           <div className="text-base font-semibold tracking-tight">Past-Task</div>
-          <button onClick={() => setDrawerOpen(true)} className="p-2 rounded-md text-muted-foreground hover:bg-muted transition-colors" aria-label="Open menu">
-            <Menu className="size-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <button onClick={() => setDrawerOpen(true)} className="p-2 rounded-md text-muted-foreground hover:bg-muted transition-colors" aria-label="Open menu">
+              <Menu className="size-5" />
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 overflow-x-hidden pb-20 md:pb-0">
