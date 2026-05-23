@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, MessageSquare, Trash2, Search,
   LayoutGrid, LayoutList, Table2, Pencil, CalendarClock, X,
   ChevronDown, ChevronRight,
   Paperclip, Upload, FileText, FileImage, FileSpreadsheet, File, Download,
-  Eye, Loader2,
+  Eye, Loader2, CheckSquare, Square, CheckCheck,
 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent, type DragOverEvent, DragOverlay, type DragStartEvent,
+} from "@dnd-kit/core";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -17,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -123,8 +128,23 @@ function TasksPage() {
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  // Quick-add state: which group + current title text
+  // Quick-add state
   const [quickAdd, setQuickAdd] = useState<{ status: TaskStatus; title: string } | null>(null);
+
+  // ── Bulk selection ──────────────────────────────────────────────────────────
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+  const selectAll = (ids: string[]) => setSelected(new Set(ids));
+  const clearSelection = () => setSelected(new Set());
+
+  // ── Drag state (board) ──────────────────────────────────────────────────────
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
@@ -148,6 +168,25 @@ function TasksPage() {
     queryFn: async () => (await supabase.from("departments").select("*").order("name")).data ?? [],
   });
 
+  // ── Real-time: subscribe to task changes ────────────────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel("tasks-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_comments" }, (payload: any) => {
+        if (payload.new?.task_id) qc.invalidateQueries({ queryKey: ["comments", payload.new.task_id] });
+        if (payload.old?.task_id) qc.invalidateQueries({ queryKey: ["comments", payload.old.task_id] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_attachments" }, (payload: any) => {
+        const id = payload.new?.task_id ?? payload.old?.task_id;
+        if (id) qc.invalidateQueries({ queryKey: ["attachments", id] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [qc]);
+
   const filtered = useMemo(() => (tasks ?? []).filter((tk) => {
     if (search         && !tk.title.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterPriority !== "all" && tk.priority    !== filterPriority)            return false;
@@ -164,10 +203,10 @@ function TasksPage() {
     return g;
   }, [filtered]);
 
-  // Generic patch mutation (status, priority, assignee all go through here)
+  // Generic patch mutation
   const updateField = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown> }) => {
-      const { error } = await supabase.from("tasks").update(patch).eq("id", id);
+      const { error } = await supabase.from("tasks").update(patch as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: (_, { id, patch }) => {
@@ -219,12 +258,60 @@ function TasksPage() {
     onError: (e) => toast.error(e.message),
   });
 
+  // ── Bulk mutations ──────────────────────────────────────────────────────────
+  const bulkUpdate = useMutation({
+    mutationFn: async ({ ids, patch }: { ids: string[]; patch: Record<string, unknown> }) => {
+      const { error } = await supabase.from("tasks").update(patch as any).in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      clearSelection();
+      toast.success("Updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("tasks").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      clearSelection();
+      toast.success("Deleted");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // ── Drag handlers (board) ───────────────────────────────────────────────────
+  const handleDragStart = (e: DragStartEvent) => {
+    setDragActiveId(e.active.id as string);
+  };
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setDragActiveId(null);
+    const { active, over } = e;
+    if (!over) return;
+    // over.id is either a task id or a status group id (prefixed "group-")
+    const overId = over.id as string;
+    const newStatus = overId.startsWith("group-")
+      ? overId.replace("group-", "") as TaskStatus
+      : (tasks?.find(t => t.id === overId)?.status as TaskStatus);
+    if (!newStatus) return;
+    const activeTask = tasks?.find(t => t.id === active.id);
+    if (!activeTask || activeTask.status === newStatus) return;
+    updateField.mutate({ id: active.id as string, patch: { status: newStatus } });
+  };
+
   const toggleGroup = (s: string) => setCollapsedGroups((prev) => {
     const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n;
   });
 
   const detailTask = tasks?.find((tk) => tk.id === detailId);
   const editTask   = tasks?.find((tk) => tk.id === editId);
+  const dragTask   = tasks?.find((tk) => tk.id === dragActiveId);
   const canEditTask = (tk: any) => isAdmin || tk.assignee_id === user?.id;
   const clearFilters = () => { setSearch(""); setFilterPriority("all"); setFilterStatus("all"); setFilterAssignee("all"); };
 
@@ -234,10 +321,12 @@ function TasksPage() {
     { mode: "list"  as ViewMode, icon: <LayoutList className="size-4" />, label: "List"  },
   ];
 
+  const selectedArr = Array.from(selected);
+
   return (
     <div className="flex flex-col min-h-0 h-full">
 
-      {/* ── Toolbar ────────────────────────────────────────────────────── */}
+      {/* ── Toolbar ── */}
       <div className="px-4 md:px-6 pt-4 md:pt-6 pb-3 border-b space-y-3 shrink-0">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -245,16 +334,12 @@ function TasksPage() {
             <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} {t("results")}</p>
           </div>
           <div className="flex items-center gap-2">
-            {/* View toggle */}
             <div className="flex items-center border rounded-md overflow-hidden">
               {viewButtons.map(({ mode, icon }) => (
-                <button key={mode} onClick={() => setView(mode)}
+                <button key={mode} onClick={() => { setView(mode); clearSelection(); }}
                   className={cn("px-2.5 py-1.5 transition-colors",
-                    view === mode
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-muted text-muted-foreground"
-                  )}
-                  aria-label={mode}
+                    view === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+                  )} aria-label={mode}
                 >{icon}</button>
               ))}
             </div>
@@ -279,12 +364,8 @@ function TasksPage() {
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
             <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("search_tasks")}
-              className="ps-8 h-8 text-sm"
-            />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("search_tasks")} className="ps-8 h-8 text-sm" />
           </div>
           <div className="flex gap-2 flex-wrap">
             <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -321,15 +402,63 @@ function TasksPage() {
         </div>
       </div>
 
-      {/* ── Views ──────────────────────────────────────────────────────── */}
+      {/* ── Bulk Action Bar ─────────────────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div className="px-4 md:px-6 py-2 bg-primary/5 border-b flex items-center gap-3 flex-wrap shrink-0">
+          <span className="text-sm font-medium text-primary">{selected.size} selected</span>
+          <div className="flex items-center gap-2 flex-wrap ms-auto">
+            {/* Status */}
+            <Select onValueChange={(v) => bulkUpdate.mutate({ ids: selectedArr, patch: { status: v } })}>
+              <SelectTrigger className="h-7 text-xs w-36"><SelectValue placeholder="Set status…" /></SelectTrigger>
+              <SelectContent>
+                {STATUS_ORDER.map(s => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {/* Priority */}
+            <Select onValueChange={(v) => bulkUpdate.mutate({ ids: selectedArr, patch: { priority: v } })}>
+              <SelectTrigger className="h-7 text-xs w-36"><SelectValue placeholder="Set priority…" /></SelectTrigger>
+              <SelectContent>
+                {(["critical","high","medium","low"] as TaskPriority[]).map(p => (
+                  <SelectItem key={p} value={p}>{PRIORITY_LABEL[p]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Assignee */}
+            <Select onValueChange={(v) => bulkUpdate.mutate({ ids: selectedArr, patch: { assignee_id: v === "__none" ? null : v } })}>
+              <SelectTrigger className="h-7 text-xs w-36"><SelectValue placeholder="Assign to…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Unassign</SelectItem>
+                {(members ?? []).map((m: any) => (
+                  <SelectItem key={m.id} value={m.id}>{m.full_name ?? m.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isAdmin && (
+              <Button variant="destructive" size="sm" className="h-7 text-xs"
+                onClick={() => { if (confirm(`Delete ${selected.size} tasks?`)) bulkDelete.mutate(selectedArr); }}>
+                <Trash2 className="size-3" /> Delete
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearSelection}>
+              <X className="size-3" /> Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Views ── */}
       <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
 
-        {/* ── TABLE VIEW (Monday-style) ── */}
+        {/* ── TABLE VIEW ── */}
         {view === "table" && (
           <div className="rounded-lg border overflow-hidden">
-
-            {/* Column headers */}
-            <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1.2fr_1fr_1fr] bg-muted/50 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider select-none">
+            <div className="hidden md:grid grid-cols-[2rem_2.5fr_1fr_1fr_1.2fr_1fr_1fr] bg-muted/50 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider select-none">
+              <div className="px-2 py-2.5 flex items-center">
+                <Checkbox
+                  checked={filtered.length > 0 && filtered.every(tk => selected.has(tk.id))}
+                  onCheckedChange={(v) => v ? selectAll(filtered.map(tk => tk.id)) : clearSelection()}
+                />
+              </div>
               <div className="px-4 py-2.5">{t("title")}</div>
               <div className="px-3 py-2.5">{t("status")}</div>
               <div className="px-3 py-2.5">{t("priority")}</div>
@@ -349,7 +478,6 @@ function TasksPage() {
 
               return (
                 <div key={s}>
-                  {/* Group header */}
                   <button
                     onClick={() => toggleGroup(s)}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 bg-muted/20 border-b hover:bg-muted/40 transition-colors text-left"
@@ -362,10 +490,7 @@ function TasksPage() {
                       {rows.length}
                     </span>
                     <span className="ms-auto text-muted-foreground">
-                      {collapsed
-                        ? <ChevronRight className="size-3.5" />
-                        : <ChevronDown className="size-3.5" />
-                      }
+                      {collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
                     </span>
                   </button>
 
@@ -377,12 +502,13 @@ function TasksPage() {
                           task={tk}
                           members={members ?? []}
                           canEdit={canEditTask(tk)}
+                          selected={selected.has(tk.id)}
+                          onSelect={() => toggleSelect(tk.id)}
                           onClick={() => setDetailId(tk.id)}
                           onUpdate={(patch) => updateField.mutate({ id: tk.id, patch })}
                         />
                       ))}
 
-                      {/* Quick-add row */}
                       {isAdmin && quickAdd?.status === s ? (
                         <div className="flex items-center gap-2 px-4 py-2 border-b bg-primary/5">
                           <span className={cn("w-1 self-stretch rounded-full shrink-0", STATUS_LEFT_BAR[s])} />
@@ -393,16 +519,12 @@ function TasksPage() {
                             value={quickAdd.title}
                             onChange={(e) => setQuickAdd({ ...quickAdd, title: e.target.value })}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" && quickAdd.title.trim()) {
+                              if (e.key === "Enter" && quickAdd.title.trim())
                                 quickAddTask.mutate({ title: quickAdd.title.trim(), status: s });
-                              }
                               if (e.key === "Escape") setQuickAdd(null);
                             }}
                           />
-                          <button
-                            onClick={() => setQuickAdd(null)}
-                            className="text-muted-foreground hover:text-foreground p-1 rounded"
-                          >
+                          <button onClick={() => setQuickAdd(null)} className="text-muted-foreground hover:text-foreground p-1 rounded">
                             <X className="size-3.5" />
                           </button>
                         </div>
@@ -411,8 +533,7 @@ function TasksPage() {
                           onClick={() => setQuickAdd({ status: s, title: "" })}
                           className="w-full flex items-center gap-2 px-4 py-2 border-b last:border-b-0 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
                         >
-                          <Plus className="size-3.5" />
-                          {t("new_task")}
+                          <Plus className="size-3.5" /> {t("new_task")}
                         </button>
                       )}
                     </>
@@ -423,44 +544,50 @@ function TasksPage() {
           </div>
         )}
 
-        {/* ── BOARD VIEW ── */}
+        {/* ── BOARD VIEW (with DnD) ── */}
         {view === "board" && (
-          <div className="-mx-4 md:mx-0">
-            <div className="flex gap-3 overflow-x-auto px-4 md:px-0 pb-4 snap-x snap-mandatory md:grid md:grid-cols-4 md:overflow-visible">
-              {STATUS_ORDER.map((s) => {
-                const items = filtered.filter((tk) => tk.status === s);
-                return (
-                  <div key={s} className="flex flex-col shrink-0 w-72 md:w-auto snap-start">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={cn("size-3 rounded-sm shrink-0", STATUS_SQUARE[s])} />
-                      <span className={cn("text-sm font-semibold", STATUS_LABEL_COLOR[s])}>
-                        {statusLabel(s)}
-                      </span>
-                      <span className="text-xs text-muted-foreground ms-auto">{items.length}</span>
-                    </div>
-                    <div className="space-y-2 min-h-[80px]">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="-mx-4 md:mx-0">
+              <div className="flex gap-3 overflow-x-auto px-4 md:px-0 pb-4 snap-x snap-mandatory md:grid md:grid-cols-4 md:overflow-visible">
+                {STATUS_ORDER.map((s) => {
+                  const items = filtered.filter((tk) => tk.status === s);
+                  return (
+                    <DroppableColumn key={s} status={s as TaskStatus} label={statusLabel(s)} count={items.length}>
                       {items.map((tk) => (
-                        <BoardCard key={tk.id} task={tk} onClick={() => setDetailId(tk.id)} />
+                        <DraggableBoardCard
+                          key={tk.id}
+                          task={tk}
+                          isDragging={dragActiveId === tk.id}
+                          onClick={() => setDetailId(tk.id)}
+                        />
                       ))}
                       {items.length === 0 && (
                         <div className="text-xs text-muted-foreground/50 italic py-4 text-center border border-dashed rounded-lg">
                           {t("empty")}
                         </div>
                       )}
-                    </div>
-                    {isAdmin && (
-                      <button
-                        onClick={() => { setQuickAdd({ status: s, title: "" }); setView("table"); }}
-                        className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1.5"
-                      >
-                        <Plus className="size-3.5" /> {t("new_task")}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                      {isAdmin && (
+                        <button
+                          onClick={() => { setQuickAdd({ status: s as TaskStatus, title: "" }); setView("table"); }}
+                          className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1.5"
+                        >
+                          <Plus className="size-3.5" /> {t("new_task")}
+                        </button>
+                      )}
+                    </DroppableColumn>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+            <DragOverlay>
+              {dragTask && <BoardCard task={dragTask} onClick={() => {}} className="shadow-2xl rotate-1 opacity-95" />}
+            </DragOverlay>
+          </DndContext>
         )}
 
         {/* ── LIST VIEW ── */}
@@ -470,12 +597,9 @@ function TasksPage() {
               <div className="py-16 text-center text-sm text-muted-foreground">{t("empty")}</div>
             )}
             {filtered.map((tk) => (
-              <Card
-                key={tk.id}
-                onClick={() => setDetailId(tk.id)}
+              <Card key={tk.id} onClick={() => setDetailId(tk.id)}
                 className={cn(
-                  "px-4 py-3 cursor-pointer hover:shadow-sm transition-shadow flex items-center gap-3",
-                  "border-s-4",
+                  "px-4 py-3 cursor-pointer hover:shadow-sm transition-shadow flex items-center gap-3 border-s-4",
                   tk.status === "not_started" ? "border-s-gray-400" :
                   tk.status === "working"     ? "border-s-blue-500" :
                   tk.status === "stuck"       ? "border-s-red-500"  : "border-s-green-500"
@@ -502,11 +626,8 @@ function TasksPage() {
                   </div>
                 </div>
                 {isAdmin && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditId(tk.id); }}
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground shrink-0"
-                    aria-label={t("edit_task")}
-                  >
+                  <button onClick={(e) => { e.stopPropagation(); setEditId(tk.id); }}
+                    className="p-1.5 rounded hover:bg-muted text-muted-foreground shrink-0">
                     <Pencil className="size-3.5" />
                   </button>
                 )}
@@ -516,13 +637,10 @@ function TasksPage() {
         )}
       </div>
 
-      {/* ── SIDE PANEL (Monday-style detail) ───────────────────────────── */}
+      {/* ── SIDE PANEL ── */}
       <Sheet open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         {detailTask && (
-          <SheetContent
-            side="right"
-            className="w-full sm:max-w-xl !p-0 flex flex-col overflow-hidden"
-          >
+          <SheetContent side="right" className="w-full sm:max-w-xl !p-0 flex flex-col overflow-hidden">
             <TaskDetail
               task={detailTask}
               canEdit={canEditTask(detailTask)}
@@ -550,18 +668,109 @@ function TasksPage() {
   );
 }
 
+// ─── Droppable Board Column ───────────────────────────────────────────────────
+
+import { useDroppable } from "@dnd-kit/core";
+
+function DroppableColumn({ status, label, count, children }: {
+  status: TaskStatus; label: string; count: number; children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `group-${status}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col shrink-0 w-72 md:w-auto snap-start rounded-lg transition-colors p-2",
+        isOver && "bg-primary/5 ring-2 ring-primary/20"
+      )}
+    >
+      <div className="flex items-center gap-2 mb-3 px-1">
+        <span className={cn("size-3 rounded-sm shrink-0", STATUS_SQUARE[status])} />
+        <span className={cn("text-sm font-semibold", STATUS_LABEL_COLOR[status])}>{label}</span>
+        <span className="text-xs text-muted-foreground ms-auto">{count}</span>
+      </div>
+      <div className="space-y-2 min-h-[80px] flex-1">{children}</div>
+    </div>
+  );
+}
+
+// ─── Draggable Board Card ─────────────────────────────────────────────────────
+
+import { useDraggable } from "@dnd-kit/core";
+
+function DraggableBoardCard({ task, isDragging, onClick }: {
+  task: any; isDragging: boolean; onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: task.id });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <BoardCard task={task} onClick={onClick} className={cn(isDragging && "opacity-40")} />
+    </div>
+  );
+}
+
+// ─── Board card ───────────────────────────────────────────────────────────────
+
+function BoardCard({ task, onClick, className }: { task: any; onClick: () => void; className?: string }) {
+  const { t } = useI18n();
+  const overdue = isOverdue(task.due_date, task.status);
+  const topColor =
+    task.status === "not_started" ? "#9ca3af" :
+    task.status === "working"     ? "#3b82f6" :
+    task.status === "stuck"       ? "#ef4444" : "#22c55e";
+
+  return (
+    <Card
+      onClick={onClick}
+      className={cn("p-3 cursor-pointer hover:shadow-md transition-all active:scale-[0.99] border-t-2", className)}
+      style={{ borderTopColor: topColor }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium leading-snug">{task.title}</p>
+        {overdue && (
+          <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 shrink-0">
+            <CalendarClock className="size-2.5" />
+          </Badge>
+        )}
+      </div>
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <PriorityPill priority={task.priority} />
+        {task.due_date && (
+          <span className={cn("text-xs", overdue ? "text-destructive font-medium" : "text-muted-foreground")}>
+            {task.due_date}
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground truncate">
+        {task.assignee?.full_name ?? t("unassigned")}
+      </p>
+    </Card>
+  );
+}
+
 // ─── Monday-style table row ───────────────────────────────────────────────────
 
-function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
-  task: any; members: any[]; canEdit: boolean;
-  onClick: () => void; onUpdate: (patch: Record<string, unknown>) => void;
+function MondayRow({ task, members, canEdit, selected, onSelect, onClick, onUpdate }: {
+  task: any; members: any[]; canEdit: boolean; selected: boolean;
+  onSelect: () => void; onClick: () => void; onUpdate: (patch: Record<string, unknown>) => void;
 }) {
   const { t } = useI18n();
   const statusLabel = useStatusLabel();
   const overdue = isOverdue(task.due_date, task.status as TaskStatus);
 
   return (
-    <div className="group grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1.2fr_1fr_1fr] border-b last:border-b-0 hover:bg-muted/25 transition-colors">
+    <div className={cn(
+      "group grid grid-cols-1 md:grid-cols-[2rem_2.5fr_1fr_1fr_1.2fr_1fr_1fr] border-b last:border-b-0 hover:bg-muted/25 transition-colors",
+      selected && "bg-primary/5"
+    )}>
+      {/* Checkbox */}
+      <div className="hidden md:flex px-2 py-2.5 items-center" onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={selected} onCheckedChange={onSelect} />
+      </div>
 
       {/* Title */}
       <div className="px-4 py-2.5 flex items-center gap-2.5 cursor-pointer" onClick={onClick}>
@@ -574,7 +783,7 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
         )}
       </div>
 
-      {/* Status — inline popover */}
+      {/* Status */}
       <div className="hidden md:flex px-3 py-2.5 items-center" onClick={(e) => e.stopPropagation()}>
         {canEdit ? (
           <Popover>
@@ -586,13 +795,8 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
             <PopoverContent className="w-38 p-1" align="start">
               <div className="space-y-0.5">
                 {STATUS_ORDER.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => onUpdate({ status: s })}
-                    className={cn(
-                      "w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2",
-                      s === task.status && "bg-muted"
-                    )}
+                  <button key={s} onClick={() => onUpdate({ status: s })}
+                    className={cn("w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2", s === task.status && "bg-muted")}
                   >
                     <span className={cn("size-2 rounded-full shrink-0", STATUS_SQUARE[s as TaskStatus])} />
                     {statusLabel(s)}
@@ -604,7 +808,7 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
         ) : <StatusPill status={task.status} />}
       </div>
 
-      {/* Priority — inline popover */}
+      {/* Priority */}
       <div className="hidden md:flex px-3 py-2.5 items-center" onClick={(e) => e.stopPropagation()}>
         {canEdit ? (
           <Popover>
@@ -615,14 +819,9 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
             </PopoverTrigger>
             <PopoverContent className="w-32 p-1" align="start">
               <div className="space-y-0.5">
-                {(["critical", "high", "medium", "low"] as TaskPriority[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => onUpdate({ priority: p })}
-                    className={cn(
-                      "w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2",
-                      p === task.priority && "bg-muted"
-                    )}
+                {(["critical","high","medium","low"] as TaskPriority[]).map((p) => (
+                  <button key={p} onClick={() => onUpdate({ priority: p })}
+                    className={cn("w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2", p === task.priority && "bg-muted")}
                   >
                     <span className={cn("size-2 rounded-full shrink-0", PRIORITY_BG[p])} />
                     {PRIORITY_LABEL[p]}
@@ -634,36 +833,24 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
         ) : <PriorityPill priority={task.priority} />}
       </div>
 
-      {/* Assignee — inline popover */}
+      {/* Assignee */}
       <div className="hidden md:flex px-3 py-2.5 items-center" onClick={(e) => e.stopPropagation()}>
         {canEdit ? (
           <Popover>
             <PopoverTrigger asChild>
               <button className="text-sm text-muted-foreground hover:text-foreground transition-colors truncate max-w-[130px] text-start focus-visible:outline-none">
-                {task.assignee?.full_name ?? (
-                  <span className="italic text-muted-foreground/50">{t("unassigned")}</span>
-                )}
+                {task.assignee?.full_name ?? <span className="italic text-muted-foreground/50">{t("unassigned")}</span>}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-48 p-1" align="start">
               <div className="space-y-0.5 max-h-52 overflow-y-auto">
-                <button
-                  onClick={() => onUpdate({ assignee_id: null })}
-                  className={cn(
-                    "w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors italic text-muted-foreground",
-                    !task.assignee_id && "bg-muted"
-                  )}
-                >
+                <button onClick={() => onUpdate({ assignee_id: null })}
+                  className={cn("w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors italic text-muted-foreground", !task.assignee_id && "bg-muted")}>
                   {t("unassigned")}
                 </button>
                 {members.map((m: any) => (
-                  <button
-                    key={m.id}
-                    onClick={() => onUpdate({ assignee_id: m.id })}
-                    className={cn(
-                      "w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2",
-                      m.id === task.assignee_id && "bg-muted"
-                    )}
+                  <button key={m.id} onClick={() => onUpdate({ assignee_id: m.id })}
+                    className={cn("w-full text-start px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors flex items-center gap-2", m.id === task.assignee_id && "bg-muted")}
                   >
                     <span className="size-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold shrink-0">
                       {(m.full_name ?? m.email ?? "?")[0].toUpperCase()}
@@ -674,11 +861,7 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
               </div>
             </PopoverContent>
           </Popover>
-        ) : (
-          <span className="text-sm text-muted-foreground truncate">
-            {task.assignee?.full_name ?? t("unassigned")}
-          </span>
-        )}
+        ) : <span className="text-sm text-muted-foreground truncate">{task.assignee?.full_name ?? t("unassigned")}</span>}
       </div>
 
       {/* Department */}
@@ -705,45 +888,6 @@ function MondayRow({ task, members, canEdit, onClick, onUpdate }: {
         )}
       </div>
     </div>
-  );
-}
-
-// ─── Board card ───────────────────────────────────────────────────────────────
-
-function BoardCard({ task, onClick }: { task: any; onClick: () => void }) {
-  const { t } = useI18n();
-  const overdue = isOverdue(task.due_date, task.status);
-  const topColor =
-    task.status === "not_started" ? "#9ca3af" :
-    task.status === "working"     ? "#3b82f6" :
-    task.status === "stuck"       ? "#ef4444" : "#22c55e";
-
-  return (
-    <Card
-      onClick={onClick}
-      className="p-3 cursor-pointer hover:shadow-md transition-all active:scale-[0.99] border-t-2"
-      style={{ borderTopColor: topColor }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium leading-snug">{task.title}</p>
-        {overdue && (
-          <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 shrink-0">
-            <CalendarClock className="size-2.5" />
-          </Badge>
-        )}
-      </div>
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <PriorityPill priority={task.priority} />
-        {task.due_date && (
-          <span className={cn("text-xs", overdue ? "text-destructive font-medium" : "text-muted-foreground")}>
-            {task.due_date}
-          </span>
-        )}
-      </div>
-      <p className="mt-1.5 text-xs text-muted-foreground truncate">
-        {task.assignee?.full_name ?? t("unassigned")}
-      </p>
-    </Card>
   );
 }
 
@@ -792,7 +936,6 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
 
   return (
     <>
-      {/* Panel header */}
       <div className={cn("px-6 pt-10 pb-4 border-b border-s-4 shrink-0", leftBarColor)}>
         <div className="flex items-start justify-between gap-3 pe-2">
           <div className="flex-1 min-w-0">
@@ -815,17 +958,13 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
         </div>
       </div>
 
-      {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-
-        {/* Description */}
         {task.description && (
           <p className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/40 rounded-lg p-3 leading-relaxed">
             {task.description}
           </p>
         )}
 
-        {/* Meta grid */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
           <MetaCell label={t("status")}>
             {canEdit ? (
@@ -838,9 +977,7 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
             ) : <StatusPill status={task.status} />}
           </MetaCell>
           <MetaCell label={t("priority")}><PriorityPill priority={task.priority} /></MetaCell>
-          <MetaCell label={t("assignee")}>
-            <span className="font-medium">{task.assignee?.full_name ?? t("unassigned")}</span>
-          </MetaCell>
+          <MetaCell label={t("assignee")}><span className="font-medium">{task.assignee?.full_name ?? t("unassigned")}</span></MetaCell>
           <MetaCell label={t("department")}>{task.department?.name ?? "—"}</MetaCell>
           <MetaCell label={t("start")}>{task.start_date ?? "—"}</MetaCell>
           <MetaCell label={t("due")}>
@@ -848,10 +985,13 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
           </MetaCell>
         </div>
 
+        {/* ── Checklist ── */}
+        <TaskChecklist taskId={task.id} canEdit={canEdit} />
+
         {/* Attachments */}
         <TaskAttachments taskId={task.id} userId={userId} actorName={actorName} canEdit={canEdit} />
 
-        {/* Comments / Updates */}
+        {/* Comments */}
         <div className="border-t pt-5">
           <div className="flex items-center gap-2 mb-3 text-sm font-medium">
             <MessageSquare className="size-4" />
@@ -868,9 +1008,7 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
                     {(c.author?.full_name ?? "U")[0].toUpperCase()}
                   </span>
                   <span className="font-medium text-xs">{c.author?.full_name ?? "User"}</span>
-                  <span className="text-xs text-muted-foreground ms-auto">
-                    {new Date(c.created_at).toLocaleString()}
-                  </span>
+                  <span className="text-xs text-muted-foreground ms-auto">{new Date(c.created_at).toLocaleString()}</span>
                 </div>
                 <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-wrap">{c.content}</p>
               </div>
@@ -881,27 +1019,17 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
           </div>
           <div className="flex gap-2">
             <Textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder={t("post_update")}
-              rows={2}
-              maxLength={1000}
+              value={comment} onChange={(e) => setComment(e.target.value)}
+              placeholder={t("post_update")} rows={2} maxLength={1000}
               className="text-sm resize-none"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && comment.trim()) post.mutate();
-              }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && comment.trim()) post.mutate(); }}
             />
-            <Button
-              onClick={() => post.mutate()}
-              disabled={!comment.trim() || post.isPending}
-              className="self-end h-9"
-            >
+            <Button onClick={() => post.mutate()} disabled={!comment.trim() || post.isPending} className="self-end h-9">
               {t("post")}
             </Button>
           </div>
         </div>
 
-        {/* Danger zone */}
         {isAdmin && (
           <div className="border-t pt-4 flex justify-end pb-2">
             <Button variant="destructive" size="sm" onClick={onDelete}>
@@ -914,6 +1042,125 @@ function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange,
   );
 }
 
+// ─── Checklist ────────────────────────────────────────────────────────────────
+
+function TaskChecklist({ taskId, canEdit }: { taskId: string; canEdit: boolean }) {
+  const qc = useQueryClient();
+  const [newItem, setNewItem] = useState("");
+  const [adding, setAdding]   = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const { data: items } = useQuery({
+    queryKey: ["checklist", taskId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("task_checklists")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("position", { ascending: true });
+      return (data ?? []) as { id: string; text: string; completed: boolean; position: number }[];
+    },
+  });
+
+  const done  = (items ?? []).filter(i => i.completed).length;
+  const total = (items ?? []).length;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const addItem = async () => {
+    if (!newItem.trim()) return;
+    await (supabase as any).from("task_checklists").insert({
+      task_id: taskId, text: newItem.trim(), completed: false, position: total,
+    });
+    setNewItem("");
+    qc.invalidateQueries({ queryKey: ["checklist", taskId] });
+  };
+
+  const toggleItem = async (id: string, completed: boolean) => {
+    await (supabase as any).from("task_checklists").update({ completed }).eq("id", id);
+    qc.invalidateQueries({ queryKey: ["checklist", taskId] });
+  };
+
+  const deleteItem = async (id: string) => {
+    await (supabase as any).from("task_checklists").delete().eq("id", id);
+    qc.invalidateQueries({ queryKey: ["checklist", taskId] });
+  };
+
+  useEffect(() => { if (adding) inputRef.current?.focus(); }, [adding]);
+
+  return (
+    <div className="border-t pt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <CheckSquare className="size-4" />
+        <span className="text-sm font-medium">Checklist</span>
+        {total > 0 && (
+          <span className="ms-auto text-xs text-muted-foreground">{done}/{total}</span>
+        )}
+      </div>
+
+      {total > 0 && (
+        <div className="h-1.5 rounded-full bg-muted mb-3 overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", pct === 100 ? "bg-green-500" : "bg-primary")}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+
+      <div className="space-y-1 mb-2">
+        {(items ?? []).map((item) => (
+          <div key={item.id} className="flex items-center gap-2 group px-1 py-0.5 rounded hover:bg-muted/40">
+            <Checkbox
+              checked={item.completed}
+              onCheckedChange={(v) => toggleItem(item.id, !!v)}
+              disabled={!canEdit}
+            />
+            <span className={cn("text-sm flex-1", item.completed && "line-through text-muted-foreground")}>
+              {item.text}
+            </span>
+            {canEdit && (
+              <button
+                onClick={() => deleteItem(item.id)}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-all"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {canEdit && (
+        adding ? (
+          <div className="flex items-center gap-2">
+            <Input
+              ref={inputRef}
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              placeholder="Add item…"
+              className="h-7 text-sm flex-1"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addItem();
+                if (e.key === "Escape") { setAdding(false); setNewItem(""); }
+              }}
+            />
+            <Button size="sm" className="h-7 text-xs px-2" onClick={addItem} disabled={!newItem.trim()}>Add</Button>
+            <button onClick={() => { setAdding(false); setNewItem(""); }} className="text-muted-foreground hover:text-foreground p-1">
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <Plus className="size-3.5" /> Add item
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
 // ─── Attachments ──────────────────────────────────────────────────────────────
 
 type PreviewState = { att: any; url: string };
@@ -921,62 +1168,24 @@ type PreviewState = { att: any; url: string };
 function AttachmentPreview({ preview, onClose }: { preview: PreviewState; onClose: () => void }) {
   const isImage  = preview.att.mime_type.startsWith("image/");
   const isPdf    = preview.att.mime_type === "application/pdf";
-  // Office / CSV → Google Docs embedded viewer
   const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(preview.url)}&embedded=true`;
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex flex-col bg-black/90"
-      onClick={onClose}
-    >
-      {/* Header bar */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 bg-black/60 backdrop-blur shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[200] flex flex-col bg-black/90" onClick={onClose}>
+      <div className="flex items-center gap-3 px-4 py-3 bg-black/60 backdrop-blur shrink-0" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm text-white font-medium truncate flex-1">{preview.att.file_name}</p>
-        <button
-          onClick={() => window.open(preview.url, "_blank", "noopener,noreferrer")}
-          className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-          title="Open / Download"
-        >
+        <button onClick={() => window.open(preview.url, "_blank", "noopener,noreferrer")}
+          className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors" title="Open / Download">
           <Download className="size-4" />
         </button>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-          title="Close"
-        >
+        <button onClick={onClose} className="p-1.5 rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors" title="Close">
           <X className="size-4" />
         </button>
       </div>
-
-      {/* Preview area */}
-      <div
-        className="flex-1 flex items-center justify-center p-4 min-h-0"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isImage && (
-          <img
-            src={preview.url}
-            alt={preview.att.file_name}
-            className="max-w-full max-h-full object-contain rounded shadow-2xl"
-          />
-        )}
-        {isPdf && (
-          <iframe
-            src={preview.url}
-            title={preview.att.file_name}
-            className="w-full h-full rounded bg-white"
-          />
-        )}
-        {!isImage && !isPdf && (
-          <iframe
-            src={viewerUrl}
-            title={preview.att.file_name}
-            className="w-full h-full rounded bg-white"
-          />
-        )}
+      <div className="flex-1 flex items-center justify-center p-4 min-h-0" onClick={(e) => e.stopPropagation()}>
+        {isImage && <img src={preview.url} alt={preview.att.file_name} className="max-w-full max-h-full object-contain rounded shadow-2xl" />}
+        {isPdf && <iframe src={preview.url} title={preview.att.file_name} className="w-full h-full rounded bg-white" />}
+        {!isImage && !isPdf && <iframe src={viewerUrl} title={preview.att.file_name} className="w-full h-full rounded bg-white" />}
       </div>
     </div>
   );
@@ -987,9 +1196,9 @@ function TaskAttachments({ taskId, userId, actorName, canEdit }: { taskId: strin
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [preview, setPreview] = useState<PreviewState | null>(null);
-  const [loadingId, setLoadingId] = useState<string | null>(null); // which att is being fetched
+  const [dragOver, setDragOver]   = useState(false);
+  const [preview, setPreview]     = useState<PreviewState | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   const { data: attachments } = useQuery({
     queryKey: ["attachments", taskId],
@@ -997,8 +1206,7 @@ function TaskAttachments({ taskId, userId, actorName, canEdit }: { taskId: strin
       const { data } = await supabase
         .from("task_attachments")
         .select("*, uploader:profiles!task_attachments_uploaded_by_fkey(full_name)")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: false });
+        .eq("task_id", taskId).order("created_at", { ascending: false });
       return data ?? [];
     },
   });
@@ -1006,33 +1214,23 @@ function TaskAttachments({ taskId, userId, actorName, canEdit }: { taskId: strin
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error(`File too large. Max ${formatBytes(MAX_FILE_SIZE)}`);
-      return;
-    }
+    if (file.size > MAX_FILE_SIZE) { toast.error(`File too large. Max ${formatBytes(MAX_FILE_SIZE)}`); return; }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop();
+      const ext  = file.name.split(".").pop();
       const path = `${taskId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("task-attachments").upload(path, file, { contentType: file.type });
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type });
       if (uploadError) throw uploadError;
-
       const { error: dbError } = await supabase.from("task_attachments").insert({
         task_id: taskId, uploaded_by: userId, file_name: file.name,
         file_size: file.size, mime_type: file.type, storage_path: path,
       });
       if (dbError) throw dbError;
-
       logActivity({ actorId: userId, actorName, action: "attachment.uploaded", entityType: "attachment", entityId: taskId, meta: { file: file.name, task: taskId } });
       toast.success(t("attachment_uploaded"));
       qc.invalidateQueries({ queryKey: ["attachments", taskId] });
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    } catch (e: any) { toast.error(e.message); }
+    finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
   const deleteAttachment = async (att: any) => {
@@ -1044,114 +1242,74 @@ function TaskAttachments({ taskId, userId, actorName, canEdit }: { taskId: strin
   };
 
   const downloadAttachment = async (att: any) => {
-    const { data } = await supabase.storage
-      .from("task-attachments").createSignedUrl(att.storage_path, 60);
-    if (data?.signedUrl) {
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-    }
+    const { data } = await supabase.storage.from("task-attachments").createSignedUrl(att.storage_path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
   const openPreview = async (att: any) => {
     setLoadingId(att.id);
-    const { data } = await supabase.storage
-      .from("task-attachments").createSignedUrl(att.storage_path, 300); // 5-min URL for viewing
+    const { data } = await supabase.storage.from("task-attachments").createSignedUrl(att.storage_path, 300);
     setLoadingId(null);
     if (data?.signedUrl) setPreview({ att, url: data.signedUrl });
   };
 
   return (
     <>
-    {preview && <AttachmentPreview preview={preview} onClose={() => setPreview(null)} />}
-    <div className="border-t pt-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Paperclip className="size-4" />
-        <span className="text-sm font-medium">{t("attachments")}</span>
-        {(attachments ?? []).length > 0 && (
-          <span className="ms-auto text-xs text-muted-foreground">{(attachments ?? []).length}</span>
-        )}
-      </div>
-
-      {/* Drop zone */}
-      {canEdit && (
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
-          onClick={() => fileInputRef.current?.click()}
-          className={cn(
-            "border-2 border-dashed rounded-lg px-4 py-4 text-center cursor-pointer transition-colors mb-3",
-            dragOver
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-primary/50 hover:bg-muted/40"
-          )}
-        >
-          <Upload className="size-4 mx-auto mb-1 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            {uploading ? t("uploading") : "Drop file or click to upload"}
-          </p>
-          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-            IMG · PDF · Word · Excel — max 20 MB
-          </p>
-          <input
-            ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} className="hidden"
-            onChange={(e) => handleFiles(e.target.files)} disabled={uploading}
-          />
+      {preview && <AttachmentPreview preview={preview} onClose={() => setPreview(null)} />}
+      <div className="border-t pt-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Paperclip className="size-4" />
+          <span className="text-sm font-medium">{t("attachments")}</span>
+          {(attachments ?? []).length > 0 && <span className="ms-auto text-xs text-muted-foreground">{(attachments ?? []).length}</span>}
         </div>
-      )}
-
-      {/* File list */}
-      <div className="space-y-1.5">
-        {(attachments ?? []).length === 0 && (
-          <p className="text-xs text-muted-foreground italic py-1">{t("no_attachments")}</p>
-        )}
-        {(attachments ?? []).map((att: any) => (
+        {canEdit && (
           <div
-            key={att.id}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors group"
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "border-2 border-dashed rounded-lg px-4 py-4 text-center cursor-pointer transition-colors mb-3",
+              dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40"
+            )}
           >
-            <div className="shrink-0">{getFileIcon(att.mime_type)}</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate">{att.file_name}</p>
-              <p className="text-[10px] text-muted-foreground">
-                {formatBytes(att.file_size)}
-                {att.uploader?.full_name && ` · ${att.uploader.full_name}`}
-                {` · ${new Date(att.created_at).toLocaleDateString()}`}
-              </p>
-            </div>
-            {/* Always-visible preview button on mobile; hover-reveal on desktop */}
-            <div className="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => openPreview(att)}
-                className="p-1 rounded hover:bg-background text-muted-foreground"
-                title="Preview"
-                disabled={loadingId === att.id}
-              >
-                {loadingId === att.id
-                  ? <Loader2 className="size-3.5 animate-spin" />
-                  : <Eye className="size-3.5" />
-                }
-              </button>
-              <button
-                onClick={() => downloadAttachment(att)}
-                className="p-1 rounded hover:bg-background text-muted-foreground"
-                title="Open / Download"
-              >
-                <Download className="size-3.5" />
-              </button>
-              {(canEdit || att.uploaded_by === userId) && (
-                <button
-                  onClick={() => deleteAttachment(att)}
-                  className="p-1 rounded hover:bg-background text-destructive"
-                  title="Delete"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
-            </div>
+            <Upload className="size-4 mx-auto mb-1 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">{uploading ? t("uploading") : "Drop file or click to upload"}</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">IMG · PDF · Word · Excel — max 20 MB</p>
+            <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} className="hidden"
+              onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
           </div>
-        ))}
+        )}
+        <div className="space-y-1.5">
+          {(attachments ?? []).length === 0 && <p className="text-xs text-muted-foreground italic py-1">{t("no_attachments")}</p>}
+          {(attachments ?? []).map((att: any) => (
+            <div key={att.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors group">
+              <div className="shrink-0">{getFileIcon(att.mime_type)}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate">{att.file_name}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {formatBytes(att.file_size)}
+                  {att.uploader?.full_name && ` · ${att.uploader.full_name}`}
+                  {` · ${new Date(att.created_at).toLocaleDateString()}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                <button onClick={() => openPreview(att)} className="p-1 rounded hover:bg-background text-muted-foreground" title="Preview" disabled={loadingId === att.id}>
+                  {loadingId === att.id ? <Loader2 className="size-3.5 animate-spin" /> : <Eye className="size-3.5" />}
+                </button>
+                <button onClick={() => downloadAttachment(att)} className="p-1 rounded hover:bg-background text-muted-foreground" title="Open / Download">
+                  <Download className="size-3.5" />
+                </button>
+                {(canEdit || att.uploaded_by === userId) && (
+                  <button onClick={() => deleteAttachment(att)} className="p-1 rounded hover:bg-background text-destructive" title="Delete">
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
     </>
   );
 }
@@ -1223,11 +1381,14 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
 
 function NewTaskDialog({ members, depts, userId, actorName, onCreated }: any) {
   const { t } = useI18n();
-  const [title, setTitle] = useState("");     const [desc, setDesc] = useState("");
+  const [title, setTitle]       = useState("");
+  const [desc, setDesc]         = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [assignee, setAssignee] = useState(""); const [dept, setDept] = useState("");
-  const [start, setStart] = useState("");       const [due, setDue] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [assignee, setAssignee] = useState("");
+  const [dept, setDept]         = useState("");
+  const [start, setStart]       = useState("");
+  const [due, setDue]           = useState("");
+  const [busy, setBusy]         = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true);
@@ -1296,7 +1457,7 @@ function EditTaskDialog({ task, members, depts, onSaved }: any) {
   );
 }
 
-// ─── Meta cell (detail panel) ─────────────────────────────────────────────────
+// ─── Meta cell ────────────────────────────────────────────────────────────────
 
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
