@@ -171,20 +171,27 @@ function TasksPage() {
 
   // ── Real-time: subscribe to task changes ────────────────────────────────────
   useEffect(() => {
+    const name = "tasks-realtime";
+    // Remove stale channel before re-subscribing (React StrictMode safe)
+    supabase.getChannels().forEach((ch) => {
+      if (ch.topic === `realtime:${name}`) supabase.removeChannel(ch);
+    });
     const channel = supabase
-      .channel("tasks-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
+      .channel(name)
+      .on("postgres_changes" as any, { event: "*", schema: "public", table: "tasks" }, () => {
         qc.invalidateQueries({ queryKey: ["tasks"] });
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "task_comments" }, (payload: any) => {
+      .on("postgres_changes" as any, { event: "*", schema: "public", table: "task_comments" }, (payload: any) => {
         if (payload.new?.task_id) qc.invalidateQueries({ queryKey: ["comments", payload.new.task_id] });
         if (payload.old?.task_id) qc.invalidateQueries({ queryKey: ["comments", payload.old.task_id] });
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "task_attachments" }, (payload: any) => {
+      .on("postgres_changes" as any, { event: "*", schema: "public", table: "task_attachments" }, (payload: any) => {
         const id = payload.new?.task_id ?? payload.old?.task_id;
         if (id) qc.invalidateQueries({ queryKey: ["attachments", id] });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn("[tasks realtime]", err.message);
+      });
     return () => { supabase.removeChannel(channel); };
   }, [qc]);
 

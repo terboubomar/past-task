@@ -81,14 +81,21 @@ export function NotificationBell() {
   // Real-time: new notification for this user
   useEffect(() => {
     if (!user?.id) return;
+    const name = `notif-${user.id}`;
+    // Remove any stale channel with the same name before creating a new one
+    supabase.getChannels().forEach((ch) => {
+      if (ch.topic === `realtime:${name}`) supabase.removeChannel(ch);
+    });
     const channel = supabase
-      .channel(`notif-${user.id}`)
+      .channel(name)
       .on(
-        "postgres_changes",
+        "postgres_changes" as any,
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         () => qc.invalidateQueries({ queryKey: ["notifications", user.id] })
       )
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn("[notifications realtime]", err.message);
+      });
     return () => { supabase.removeChannel(channel); };
   }, [user?.id, qc]);
 
