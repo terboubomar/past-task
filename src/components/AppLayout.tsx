@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut, Languages, Menu, X, FolderKanban } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut, Languages, Menu, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
