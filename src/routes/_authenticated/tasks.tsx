@@ -221,13 +221,6 @@ function TasksPage() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("search_tasks")} className="ps-8" />
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Select value={filterProject} onValueChange={setFilterProject}>
-            <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("project")} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all_projects")}</SelectItem>
-              {(projects ?? []).map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
           <Select value={filterStatus} onValueChange={setFilterStatus}>
             <SelectTrigger className="w-36 h-9 text-sm"><SelectValue placeholder={t("status")} /></SelectTrigger>
             <SelectContent>
