@@ -290,7 +290,7 @@ function TasksPage() {
                     key={tk.id}
                     onClick={() => setDetailId(tk.id)}
                     className={cn(
-                      "grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] border-b last:border-b-0 cursor-pointer transition-colors",
+                      "grid grid-cols-1 md:grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr] border-b last:border-b-0 cursor-pointer transition-colors",
                       STATUS_ROW_BG[tk.status as TaskStatus]
                     )}
                   >
