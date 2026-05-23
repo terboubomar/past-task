@@ -28,7 +28,8 @@ export function AppLayout() {
     { to: "/logs",        label: "Logs",               icon: Activity,        adminOnly: true  },
   ];
 
-  const visibleNav = nav.filter(n => !n.adminOnly || isAdmin);
+  const visibleNav    = nav.filter(n => !n.adminOnly || isAdmin);
+  const bottomNavItems = visibleNav.filter(n => !n.adminOnly);
 
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <>
@@ -92,7 +93,7 @@ export function AppLayout() {
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-background border-t border-border flex items-stretch">
-        {visibleNav.slice(0, 4).map(n => {
+        {bottomNavItems.map(n => {
           const active = loc.pathname.startsWith(n.to);
           return (
             <Link key={n.to} to={n.to}
