@@ -99,14 +99,13 @@ function TasksPage() {
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterAssignee, setFilterAssignee] = useState<string>("all");
-  const [filterProject, setFilterProject] = useState<string>("all");
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(id,name), project:projects(id,name,color)")
+        .select("*, assignee:profiles!tasks_assignee_profile_fkey(id,full_name), department:departments(id,name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -123,23 +122,18 @@ function TasksPage() {
     queryFn: async () => (await supabase.from("departments").select("*").order("name")).data ?? [],
   });
 
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: async () => (await supabase.from("projects").select("id,name,color").order("name")).data ?? [],
-  });
-
   const filtered = useMemo(() => {
     return (tasks ?? []).filter((tk) => {
       if (search && !tk.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterPriority !== "all" && tk.priority !== filterPriority) return false;
       if (filterStatus !== "all" && tk.status !== filterStatus) return false;
       if (filterAssignee !== "all" && tk.assignee_id !== filterAssignee) return false;
-      if (filterProject !== "all" && tk.project_id !== filterProject) return false;
       return true;
     });
-  }, [tasks, search, filterPriority, filterStatus, filterAssignee, filterProject]);
+  }, [tasks, search, filterPriority, filterStatus, filterAssignee]);
 
-  const hasFilters = search || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all" || filterProject !== "all";
+  const hasFilters = search || filterPriority !== "all" || filterStatus !== "all" || filterAssignee !== "all";
+
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
