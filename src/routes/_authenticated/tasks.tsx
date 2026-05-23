@@ -360,12 +360,13 @@ function TasksPage() {
             <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} {t("results")}</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center border rounded-md overflow-hidden">
-              {viewButtons.map(({ mode, icon }) => (
+            <div className="flex items-center border rounded-md">
+              {viewButtons.map(({ mode, icon, label }) => (
                 <button key={mode} onClick={() => { setView(mode); clearSelection(); }}
-                  className={cn("px-2.5 py-1.5 transition-colors",
+                  title={label}
+                  className={cn("px-2.5 py-1.5 transition-colors first:rounded-s-md last:rounded-e-md",
                     view === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
-                  )} aria-label={mode}
+                  )} aria-label={label}
                 >{icon}</button>
               ))}
             </div>
