@@ -435,12 +435,6 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
       </div>
       <div className="mt-2 text-xs text-muted-foreground truncate">
         {task.assignee?.full_name ?? t("unassigned")}
-        {task.project ? (
-          <span className="inline-flex items-center gap-1 ms-1">
-            · <span className="size-1.5 rounded-full inline-block" style={{ backgroundColor: task.project.color }} />
-            {task.project.name}
-          </span>
-        ) : ""}
       </div>
     </Card>
   );
@@ -450,7 +444,7 @@ function TaskCard({ task, onClick }: { task: any; onClick: () => void }) {
 
 function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
   assignee, setAssignee, dept, setDept, start, setStart, due, setDue,
-  projectId, setProjectId, members, depts, projects, busy, submitLabel, onSubmit }: any) {
+  members, depts, busy, submitLabel, onSubmit }: any) {
   const { t } = useI18n();
   const priorityLabel = usePriorityLabel();
   return (
@@ -463,34 +457,16 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
         <Label>{t("description")}</Label>
         <Textarea value={desc} onChange={(e: any) => setDesc(e.target.value)} rows={3} maxLength={2000} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>{t("priority")}</Label>
-          <Select value={priority} onValueChange={(v: any) => setPriority(v as TaskPriority)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
-                <SelectItem key={p} value={p}>{priorityLabel(p)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{t("project")}</Label>
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-            <SelectContent>
-              {projects.map((p: any) => (
-                <SelectItem key={p.id} value={p.id}>
-                  <span className="flex items-center gap-2">
-                    <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
-                    {p.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="space-y-1.5">
+        <Label>{t("priority")}</Label>
+        <Select value={priority} onValueChange={(v: any) => setPriority(v as TaskPriority)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
+              <SelectItem key={p} value={p}>{priorityLabel(p)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -529,12 +505,11 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
 
 // ─── New Task ────────────────────────────────────────────────────────────────
 
-function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
+function NewTaskDialog({ members, depts, userId, onCreated }: any) {
   const { t } = useI18n();
   const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [assignee, setAssignee] = useState(""); const [dept, setDept] = useState("");
-  const [projectId, setProjectId] = useState("");
   const [start, setStart] = useState(""); const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -543,14 +518,13 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
     const { error } = await supabase.from("tasks").insert({
       title, description: desc || null, priority,
       assignee_id: assignee || null, department_id: dept || null,
-      project_id: projectId || null,
       start_date: start || null, due_date: due || null, created_by: userId,
     });
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(t("task_created"));
     onCreated();
-    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setProjectId(""); setStart(""); setDue(""); setPriority("medium");
+    setTitle(""); setDesc(""); setAssignee(""); setDept(""); setStart(""); setDue(""); setPriority("medium");
   };
 
   return (
@@ -558,9 +532,9 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
       <DialogHeader><DialogTitle>{t("new_task")}</DialogTitle></DialogHeader>
       <TaskForm title={title} setTitle={setTitle} desc={desc} setDesc={setDesc}
         priority={priority} setPriority={setPriority} assignee={assignee} setAssignee={setAssignee}
-        dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
+        dept={dept} setDept={setDept}
         start={start} setStart={setStart} due={due} setDue={setDue}
-        members={members} depts={depts} projects={projects} busy={busy}
+        members={members} depts={depts} busy={busy}
         submitLabel={busy ? t("creating") : t("create_task")} onSubmit={submit}
       />
     </DialogContent>
@@ -569,12 +543,11 @@ function NewTaskDialog({ members, depts, projects, userId, onCreated }: any) {
 
 // ─── Edit Task ────────────────────────────────────────────────────────────────
 
-function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
+function EditTaskDialog({ task, members, depts, onSaved }: any) {
   const { t } = useI18n();
   const [title, setTitle] = useState(task.title); const [desc, setDesc] = useState(task.description ?? "");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [assignee, setAssignee] = useState(task.assignee_id ?? ""); const [dept, setDept] = useState(task.department_id ?? "");
-  const [projectId, setProjectId] = useState(task.project_id ?? "");
   const [start, setStart] = useState(task.start_date ?? ""); const [due, setDue] = useState(task.due_date ?? "");
   const [busy, setBusy] = useState(false);
 
@@ -583,7 +556,6 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
     const { error } = await supabase.from("tasks").update({
       title, description: desc || null, priority,
       assignee_id: assignee || null, department_id: dept || null,
-      project_id: projectId || null,
       start_date: start || null, due_date: due || null,
     }).eq("id", task.id);
     setBusy(false);
@@ -597,9 +569,9 @@ function EditTaskDialog({ task, members, depts, projects, onSaved }: any) {
       <DialogHeader><DialogTitle>{t("edit_task")}</DialogTitle></DialogHeader>
       <TaskForm title={title} setTitle={setTitle} desc={desc} setDesc={setDesc}
         priority={priority} setPriority={setPriority} assignee={assignee} setAssignee={setAssignee}
-        dept={dept} setDept={setDept} projectId={projectId} setProjectId={setProjectId}
+        dept={dept} setDept={setDept}
         start={start} setStart={setStart} due={due} setDue={setDue}
-        members={members} depts={depts} projects={projects} busy={busy}
+        members={members} depts={depts} busy={busy}
         submitLabel={busy ? t("saving") : t("save_changes")} onSubmit={submit}
       />
     </DialogContent>

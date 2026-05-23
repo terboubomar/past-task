@@ -22,7 +22,7 @@ const newUserSchema = z.object({
   password: z.string().min(8).max(72),
   full_name: z.string().trim().min(1).max(120),
   department_id: z.string().uuid().nullable(),
-  role: z.enum(["super_admin", "ceo", "admin", "member"]),
+  role: z.enum(["ceo", "admin", "member"]),
 });
 
 export const adminCreateUser = createServerFn({ method: "POST" })
@@ -35,14 +35,9 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       .select("role")
       .eq("user_id", userId);
     const isAdmin = roles?.some((r) =>
-      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+      r.role === "ceo" || r.role === "admin"
     );
     if (!isAdmin) throw new Error("Forbidden");
-    if (data.role === "super_admin") {
-      const isSuperAdmin = roles?.some((r) => r.role === "super_admin");
-      if (!isSuperAdmin)
-        throw new Error("Only a Super Admin can create another Super Admin");
-    }
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email: toEmail(data.username),
       password: data.password,
@@ -70,7 +65,7 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
       .select("role")
       .eq("user_id", userId);
     const isAdmin = roles?.some((r) =>
-      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+      r.role === "ceo" || r.role === "admin"
     );
     if (!isAdmin) throw new Error("Forbidden");
     if (data.user_id === userId) throw new Error("Cannot delete yourself");
@@ -85,7 +80,7 @@ const updateUserSchema = z.object({
   user_id: z.string().uuid(),
   full_name: z.string().trim().min(1).max(120).optional(),
   department_id: z.string().uuid().nullable().optional(),
-  role: z.enum(["super_admin", "ceo", "admin", "member"]).optional(),
+  role: z.enum(["ceo", "admin", "member"]).optional(),
   password: z.string().min(8).max(72).optional(),
 });
 
@@ -99,7 +94,7 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
       .select("role")
       .eq("user_id", userId);
     const isAdmin = roles?.some((r) =>
-      r.role === "ceo" || r.role === "admin" || r.role === "super_admin"
+      r.role === "ceo" || r.role === "admin"
     );
     if (!isAdmin) throw new Error("Forbidden");
     const userMeta: Record<string, unknown> = {};
@@ -123,9 +118,9 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
     }
     if (data.department_id !== undefined) {
       await supabaseAdmin
-        .from("user_roles")
+        .from("profiles")
         .update({ department_id: data.department_id })
-        .eq("user_id", data.user_id);
+        .eq("id", data.user_id);
     }
     return { ok: true };
   });
