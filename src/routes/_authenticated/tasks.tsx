@@ -370,26 +370,19 @@ function TasksPage() {
               ))}
             </div>
             {isAdmin && (
-              <>
-                <TemplatesDialog
-                  members={members ?? []}
-                  depts={depts ?? []}
-                  onUse={(tpl) => { setActiveTemplate(tpl); setNewOpen(true); }}
+              <Dialog open={newOpen} onOpenChange={(o) => { setNewOpen(o); if (!o) setActiveTemplate(null); }}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="size-4" />
+                    <span className="hidden sm:inline">{t("new_task")}</span>
+                  </Button>
+                </DialogTrigger>
+                <NewTaskDialog
+                  members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""} actorName={actorName}
+                  template={activeTemplate}
+                  onCreated={() => { setNewOpen(false); setActiveTemplate(null); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
                 />
-                <Dialog open={newOpen} onOpenChange={(o) => { setNewOpen(o); if (!o) setActiveTemplate(null); }}>
-                  <DialogTrigger asChild>
-                    <Button size="sm">
-                      <Plus className="size-4" />
-                      <span className="hidden sm:inline">{t("new_task")}</span>
-                    </Button>
-                  </DialogTrigger>
-                  <NewTaskDialog
-                    members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""} actorName={actorName}
-                    template={activeTemplate}
-                    onCreated={() => { setNewOpen(false); setActiveTemplate(null); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
-                  />
-                </Dialog>
-              </>
+              </Dialog>
             )}
           </div>
         </div>
@@ -402,6 +395,13 @@ function TasksPage() {
               placeholder={t("search_tasks")} className="ps-8 h-8 text-sm" />
           </div>
           <div className="flex gap-2 flex-wrap">
+            {isAdmin && (
+              <TemplatesDialog
+                members={members ?? []}
+                depts={depts ?? []}
+                onUse={(tpl) => { setActiveTemplate(tpl); setNewOpen(true); }}
+              />
+            )}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder={t("status")} /></SelectTrigger>
               <SelectContent>
