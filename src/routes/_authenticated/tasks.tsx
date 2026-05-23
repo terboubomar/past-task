@@ -158,8 +158,9 @@ function TasksPage() {
 
   const clearFilters = () => {
     setSearch(""); setFilterPriority("all"); setFilterStatus("all");
-    setFilterAssignee("all"); setFilterProject("all");
+    setFilterAssignee("all");
   };
+
 
   const viewButtons: { mode: ViewMode; icon: React.ReactNode; label: string }[] = [
     { mode: "table", icon: <Table2 className="size-4" />, label: "Table" },
