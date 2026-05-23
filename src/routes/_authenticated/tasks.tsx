@@ -401,7 +401,7 @@ function TasksPage() {
       {editTask && (
         <Dialog open={!!editId} onOpenChange={(o) => !o && setEditId(null)}>
           <EditTaskDialog
-            task={editTask} members={members ?? []} depts={depts ?? []} projects={projects ?? []}
+            task={editTask} members={members ?? []} depts={depts ?? []}
             onSaved={() => { setEditId(null); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
           />
         </Dialog>
