@@ -6,14 +6,15 @@ import { useI18n } from "@/hooks/use-i18n";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  STATUS_ORDER, STATUS_BG, PriorityPill, StatusPill, useStatusLabel,
+  STATUS_ORDER, STATUS_BG, PRIORITY_BG,
+  PriorityPill, StatusPill, useStatusLabel, usePriorityLabel,
 } from "@/components/task-pills";
-import type { TaskStatus } from "@/components/task-pills";
+import type { TaskStatus, TaskPriority } from "@/components/task-pills";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle, CheckCircle2, Clock, Layers,
   User, CalendarClock, ArrowRight, TrendingUp,
-  ListTodo, Users, Building2,
+  ListTodo, Users, Building2, Flag,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -29,6 +30,7 @@ function DashboardPage() {
   const { user, isAdmin } = useAuth();
   const { t } = useI18n();
   const statusLabel = useStatusLabel();
+  const priorityLabel = usePriorityLabel();
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", "all"],
@@ -67,6 +69,17 @@ function DashboardPage() {
   // Due today
   const today = new Date().toISOString().split("T")[0];
   const dueToday = all.filter((tk) => tk.due_date === today && tk.status !== "done");
+
+  // Unassigned open tasks (admin)
+  const unassignedCount = all.filter((tk) => !tk.assignee_id && tk.status !== "done").length;
+
+  // Priority breakdown of open tasks (admin)
+  const PRIORITY_ORDER = ["critical", "high", "medium", "low"] as const;
+  const openCount = all.filter((tk) => tk.status !== "done").length;
+  const priorityCounts = PRIORITY_ORDER.reduce((acc, p) => {
+    acc[p] = all.filter((tk) => tk.priority === p && tk.status !== "done").length;
+    return acc;
+  }, {} as Record<TaskPriority, number>);
 
   // Per-member breakdown (admin only)
   const memberStats = (members ?? []).map((m: any) => {
@@ -111,7 +124,7 @@ function DashboardPage() {
           icon={<Layers className="size-4" />}
           label="Total Tasks"
           value={all.length}
-          sub={`${donePct}% complete`}
+          sub={`${donePct}% done${isAdmin && unassignedCount > 0 ? ` · ${unassignedCount} unassigned` : ""}`}
           color="text-foreground"
         />
         <KpiCard
@@ -137,38 +150,75 @@ function DashboardPage() {
         />
       </div>
 
-      {/* ── STATUS BREAKDOWN ── */}
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="size-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Status Breakdown</span>
-          <span className="ms-auto text-xs text-muted-foreground">{all.length} tasks total</span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {STATUS_ORDER.map((s) => {
-            const count = counts[s] ?? 0;
-            const pct = all.length > 0 ? Math.round((count / all.length) * 100) : 0;
-            return (
-              <div key={s} className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
-                    <span className={`size-2 rounded-full ${STATUS_BG[s]}`} />
-                    {statusLabel(s)}
-                  </span>
-                  <span className="font-semibold text-foreground">{count}</span>
+      <div className={cn("grid grid-cols-1 gap-4", isAdmin && "lg:grid-cols-2")}>
+        {/* ── STATUS BREAKDOWN ── */}
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="size-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Status Breakdown</span>
+            <span className="ms-auto text-xs text-muted-foreground">{all.length} tasks total</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {STATUS_ORDER.map((s) => {
+              const count = counts[s] ?? 0;
+              const pct = all.length > 0 ? Math.round((count / all.length) * 100) : 0;
+              return (
+                <div key={s} className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <span className={`size-2 rounded-full ${STATUS_BG[s]}`} />
+                      {statusLabel(s)}
+                    </span>
+                    <span className="font-semibold text-foreground">{count}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${STATUS_BG[s]}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{pct}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${STATUS_BG[s]}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <span className="text-[10px] text-muted-foreground">{pct}%</span>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* ── PRIORITY BREAKDOWN (admin) ── */}
+        {isAdmin && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Flag className="size-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Priority Breakdown</span>
+              <span className="ms-auto text-xs text-muted-foreground">{openCount} open tasks</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {PRIORITY_ORDER.map((p) => {
+                const count = priorityCounts[p] ?? 0;
+                const pct = openCount > 0 ? Math.round((count / openCount) * 100) : 0;
+                return (
+                  <div key={p} className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <span className={`size-2 rounded-full ${PRIORITY_BG[p]}`} />
+                        {priorityLabel(p)}
+                      </span>
+                      <span className="font-semibold text-foreground">{count}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${PRIORITY_BG[p]}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -267,6 +317,33 @@ function DashboardPage() {
         </Card>
       )}
 
+      {/* ── OVERDUE TASKS LIST (admin) ── */}
+      {isAdmin && overdueTasks.length > 0 && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b flex items-center gap-2">
+            <AlertTriangle className="size-4 text-destructive" />
+            <span className="text-sm font-medium">Overdue Tasks</span>
+            <Badge variant="destructive" className="ms-auto text-xs">{overdueTasks.length}</Badge>
+          </div>
+          <div className="divide-y max-h-64 overflow-y-auto">
+            {overdueTasks.map((tk) => (
+              <div key={tk.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-muted/40 transition-colors">
+                <span className={`size-2 rounded-full shrink-0 ${STATUS_BG[tk.status as TaskStatus]}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{tk.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {tk.assignee?.full_name ?? t("unassigned")}
+                    {tk.department ? ` · ${tk.department.name}` : ""}
+                  </div>
+                </div>
+                <PriorityPill priority={tk.priority} />
+                <span className="text-xs text-destructive font-medium shrink-0 tabular-nums">{tk.due_date}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -287,7 +364,15 @@ function DashboardPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{m.full_name ?? m.email}</div>
-                      <div className="text-xs text-muted-foreground">{m.done}/{m.total} done</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-green-500 transition-all"
+                            style={{ width: `${m.total > 0 ? Math.round((m.done / m.total) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">{m.done}/{m.total}</span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {m.stuck > 0 && (
