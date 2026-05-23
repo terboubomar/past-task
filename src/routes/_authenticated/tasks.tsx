@@ -205,7 +205,7 @@ function TasksPage() {
                 <Button size="sm"><Plus className="size-4" /><span className="hidden sm:inline">{t("new_task")}</span></Button>
               </DialogTrigger>
               <NewTaskDialog
-                members={members ?? []} depts={depts ?? []} projects={projects ?? []}
+                members={members ?? []} depts={depts ?? []}
                 userId={user?.id ?? ""}
                 onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
               />
