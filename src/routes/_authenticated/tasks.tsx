@@ -37,6 +37,7 @@ import {
 } from "@/components/task-pills";
 import type { TaskStatus, TaskPriority } from "@/components/task-pills";
 import { cn } from "@/lib/utils";
+import { logActivity } from "@/lib/activity-log";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   component: TasksPage,
@@ -109,6 +110,8 @@ function TasksPage() {
   const statusLabel = useStatusLabel();
   const qc = useQueryClient();
 
+  const actorName = user?.user_metadata?.full_name ?? user?.email ?? "Unknown";
+
   const [newOpen, setNewOpen]   = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editId, setEditId]     = useState<string | null>(null);
@@ -167,7 +170,21 @@ function TasksPage() {
       const { error } = await supabase.from("tasks").update(patch).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: (_, { id, patch }) => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      const task = tasks?.find((t) => t.id === id);
+      const base = { actorId: user?.id ?? "", actorName, entityType: "task" as const, entityId: id, entityName: task?.title };
+      if ("status" in patch)
+        logActivity({ ...base, action: "task.status_changed", meta: { to: patch.status } });
+      else if ("priority" in patch)
+        logActivity({ ...base, action: "task.priority_changed", meta: { to: patch.priority } });
+      else if ("assignee_id" in patch) {
+        const assignee = members?.find((m: any) => m.id === patch.assignee_id);
+        logActivity({ ...base, action: "task.assignee_changed", meta: { to: assignee?.full_name ?? assignee?.email ?? "Unassigned" } });
+      } else {
+        logActivity({ ...base, action: "task.updated" });
+      }
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -176,7 +193,9 @@ function TasksPage() {
       const { error } = await supabase.from("tasks").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      const task = tasks?.find((t) => t.id === id);
+      logActivity({ actorId: user?.id ?? "", actorName, action: "task.deleted", entityType: "task", entityId: id, entityName: task?.title });
       qc.invalidateQueries({ queryKey: ["tasks"] });
       setDetailId(null);
       toast.success(t("task_deleted"));
@@ -189,8 +208,10 @@ function TasksPage() {
         title, status, priority: "medium", created_by: user?.id ?? null,
       });
       if (error) throw error;
+      return { title };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      logActivity({ actorId: user?.id ?? "", actorName, action: "task.created", entityType: "task", entityName: data?.title });
       qc.invalidateQueries({ queryKey: ["tasks"] });
       setQuickAdd(null);
       toast.success(t("task_created"));
@@ -246,7 +267,7 @@ function TasksPage() {
                   </Button>
                 </DialogTrigger>
                 <NewTaskDialog
-                  members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""}
+                  members={members ?? []} depts={depts ?? []} userId={user?.id ?? ""} actorName={actorName}
                   onCreated={() => { setNewOpen(false); qc.invalidateQueries({ queryKey: ["tasks"] }); }}
                 />
               </Dialog>
@@ -507,6 +528,7 @@ function TasksPage() {
               canEdit={canEditTask(detailTask)}
               isAdmin={isAdmin}
               userId={user?.id ?? ""}
+              actorName={actorName}
               onStatusChange={(status) => updateField.mutate({ id: detailTask.id, patch: { status } })}
               onDelete={() => deleteTask.mutate(detailTask.id)}
               onEdit={() => { setDetailId(null); setEditId(detailTask.id); }}
@@ -727,8 +749,8 @@ function BoardCard({ task, onClick }: { task: any; onClick: () => void }) {
 
 // ─── Task Detail (side-panel body) ───────────────────────────────────────────
 
-function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, onEdit }: {
-  task: any; canEdit: boolean; isAdmin: boolean; userId: string;
+function TaskDetail({ task, canEdit, isAdmin, userId, actorName, onStatusChange, onDelete, onEdit }: {
+  task: any; canEdit: boolean; isAdmin: boolean; userId: string; actorName: string;
   onStatusChange: (s: TaskStatus) => void; onDelete: () => void; onEdit: () => void;
 }) {
   const { t } = useI18n();
@@ -755,7 +777,11 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
       });
       if (error) throw error;
     },
-    onSuccess: () => { setComment(""); qc.invalidateQueries({ queryKey: ["comments", task.id] }); },
+    onSuccess: () => {
+      logActivity({ actorId: userId, actorName, action: "comment.posted", entityType: "task", entityId: task.id, entityName: task.title });
+      setComment("");
+      qc.invalidateQueries({ queryKey: ["comments", task.id] });
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -823,7 +849,7 @@ function TaskDetail({ task, canEdit, isAdmin, userId, onStatusChange, onDelete, 
         </div>
 
         {/* Attachments */}
-        <TaskAttachments taskId={task.id} userId={userId} canEdit={canEdit} />
+        <TaskAttachments taskId={task.id} userId={userId} actorName={actorName} canEdit={canEdit} />
 
         {/* Comments / Updates */}
         <div className="border-t pt-5">
@@ -956,7 +982,7 @@ function AttachmentPreview({ preview, onClose }: { preview: PreviewState; onClos
   );
 }
 
-function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: string; canEdit: boolean }) {
+function TaskAttachments({ taskId, userId, actorName, canEdit }: { taskId: string; userId: string; actorName: string; canEdit: boolean }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -998,6 +1024,7 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
       });
       if (dbError) throw dbError;
 
+      logActivity({ actorId: userId, actorName, action: "attachment.uploaded", entityType: "attachment", entityId: taskId, meta: { file: file.name, task: taskId } });
       toast.success(t("attachment_uploaded"));
       qc.invalidateQueries({ queryKey: ["attachments", taskId] });
     } catch (e: any) {
@@ -1011,6 +1038,7 @@ function TaskAttachments({ taskId, userId, canEdit }: { taskId: string; userId: 
   const deleteAttachment = async (att: any) => {
     await supabase.storage.from("task-attachments").remove([att.storage_path]);
     await supabase.from("task_attachments").delete().eq("id", att.id);
+    logActivity({ actorId: userId, actorName, action: "attachment.deleted", entityType: "attachment", entityId: taskId, meta: { file: att.file_name, task: taskId } });
     toast.success(t("attachment_deleted"));
     qc.invalidateQueries({ queryKey: ["attachments", taskId] });
   };
@@ -1193,7 +1221,7 @@ function TaskForm({ title, setTitle, desc, setDesc, priority, setPriority,
 
 // ─── New Task Dialog ──────────────────────────────────────────────────────────
 
-function NewTaskDialog({ members, depts, userId, onCreated }: any) {
+function NewTaskDialog({ members, depts, userId, actorName, onCreated }: any) {
   const { t } = useI18n();
   const [title, setTitle] = useState("");     const [desc, setDesc] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
@@ -1210,6 +1238,7 @@ function NewTaskDialog({ members, depts, userId, onCreated }: any) {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
+    logActivity({ actorId: userId, actorName, action: "task.created", entityType: "task", entityName: title });
     toast.success(t("task_created"));
     onCreated();
     setTitle(""); setDesc(""); setAssignee(""); setDept(""); setStart(""); setDue(""); setPriority("medium");

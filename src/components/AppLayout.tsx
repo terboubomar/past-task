@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut, Languages, Menu, X } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Users, Building2, LogOut, Languages, Menu, X, Activity } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ export function AppLayout() {
     { to: "/tasks",       label: t("nav_tasks"),       icon: KanbanSquare,    adminOnly: false },
     { to: "/users",       label: t("nav_users"),       icon: Users,           adminOnly: true  },
     { to: "/departments", label: t("nav_departments"), icon: Building2,       adminOnly: true  },
+    { to: "/logs",        label: "Logs",               icon: Activity,        adminOnly: true  },
   ];
 
   const visibleNav = nav.filter(n => !n.adminOnly || isAdmin);
