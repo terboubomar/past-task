@@ -257,13 +257,12 @@ function TasksPage() {
       {/* TABLE VIEW */}
       {view === "table" && (
         <div className="rounded-lg border overflow-hidden">
-          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr_1fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1.2fr] gap-0 bg-muted/60 border-b text-xs font-medium text-muted-foreground uppercase tracking-wide">
             <div className="px-4 py-2.5">{t("title")}</div>
             <div className="px-3 py-2.5">{t("status")}</div>
             <div className="px-3 py-2.5">{t("priority")}</div>
             <div className="px-3 py-2.5">{t("assignee")}</div>
             <div className="px-3 py-2.5">{t("due_date")}</div>
-            <div className="px-3 py-2.5">{t("project")}</div>
           </div>
 
           {filtered.length === 0 && (
