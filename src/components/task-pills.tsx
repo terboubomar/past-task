@@ -55,8 +55,12 @@ export function usePriorityLabel() {
 
 export function StatusPill({ status }: { status: TaskStatus }) {
   const label = useStatusLabel();
+  const colorVar = `var(--color-status-${status.replace("_", "")})`;
   return (
-    <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded text-xs font-medium text-white ${STATUS_BG[status]}`}>
+    <span
+      className="inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-medium text-white whitespace-nowrap"
+      style={{ background: colorVar, letterSpacing: "0.005em" }}
+    >
       {label(status)}
     </span>
   );
@@ -64,8 +68,13 @@ export function StatusPill({ status }: { status: TaskStatus }) {
 
 export function PriorityPill({ priority }: { priority: TaskPriority }) {
   const label = usePriorityLabel();
+  const colorVar = `var(--color-priority-${priority})`;
   return (
-    <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium text-white ${PRIORITY_BG[priority]}`}>
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap border"
+      style={{ color: colorVar, borderColor: colorVar, background: "transparent", letterSpacing: "0.005em" }}
+    >
+      <span className="size-1.5 rounded-full shrink-0" style={{ background: colorVar }} />
       {label(priority)}
     </span>
   );
